@@ -3,6 +3,8 @@
 
 #include "Arduino.h" 
 #include <functional>
+#include "parameter_lookup.h"
+
 
 
 class potentiometer{
