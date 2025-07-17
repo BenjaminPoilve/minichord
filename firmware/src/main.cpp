@@ -75,6 +75,38 @@ const int8_t flat_notes[6][6] = { // Notes affected by flats in each key, in har
   {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C} // 6 flats: Bb, Eb, Ab, Db, Gb, Cb
 };
 
+
+uint8_t scalar_harp_selection = 0; // Selected mode: 0=Chord-based (default), 1=Major, 2=Major Pentatonic, 3=Minor Pentatonic, 4=Diminished 6th Scale, 5=Relative Natural Minor, 6=Relative Harmonic Minor, 7=Relative Minor Pentatonic
+// Scale intervals (semitones from root note), indexed from 1
+const uint8_t scale_intervals[8][8] = {
+  {0, 2, 4, 5, 7, 9, 11, 0}, // 1: Major (Ionian)
+  {0, 2, 4, 7, 9, 0, 0, 0},  // 2: Major Pentatonic (5 notes, last three unused)
+  {0, 2, 3, 7, 10, 0, 0, 0}, // 3: Minor Pentatonic
+  {0, 2, 4, 5, 7, 8, 9, 11}, // 4: Diminished 6th Scale
+  {0, 2, 3, 5, 7, 8, 10, 0}, // 5: Relative Natural Minor (shifted +3)
+  {0, 2, 3, 5, 7, 8, 11, 0}, // 6: Relative Harmonic Minor (shifted +3)
+  {0, 2, 3, 7, 10, 0, 0, 0},  // 7: Relative Minor Pentatonic (shifted +3)
+  {0, 0, 0, 0, 0, 0, 0, 0} // 8: Scale Per Chord Mode
+};
+const uint8_t scale_lengths[8] = {7, 5, 5, 8, 7, 7, 5, 7}; // Number of notes in each scale
+
+// Define chord-specific scale intervals, updated for Barry Harris Diminished 6th scale
+const uint8_t chord_scale_intervals[10][8] = {
+  {0, 2, 4, 5, 7, 9, 11, 0}, // 0: Major (Ionian) for major chord
+  {0, 2, 4, 6, 7, 9, 11, 0}, // 1: Lydian for major seventh
+  {0, 2, 3, 5, 7, 8, 10, 0}, // 2: Natural Minor (Aeolian) for minor
+  {0, 2, 4, 5, 7, 9, 10, 0}, // 3: Mixolydian for seventh (dominant)
+  {0, 2, 3, 5, 7, 9, 10, 0}, // 4: Dorian for minor seventh
+  {0, 1, 3, 4, 6, 7, 9, 10}, // 5: Octatonic (Half-Whole) for diminished
+  {0, 2, 4, 6, 8, 10, 0, 0}, // 6: Whole Tone for augmented
+  {0, 2, 4, 5, 7, 8, 9, 11}, // 7: Diminished 6th (1, 2, 3, 4, 5, b6, 6, 7) for major sixth (Barry Harris)
+  {0, 2, 3, 5, 7, 8, 9, 11}, // 8: Diminished 6th Minor (1, 2, b3, 4, 5, b6, 6, 7) for minor sixth (Barry Harris)
+  {2, 4, 5, 7, 8, 9, 11, 12}  // 9: Offset Diminished 6th (1, 2, 3, 4, 5, b6, 6, 7) for full diminished (Barry Harris)
+};
+
+const uint8_t chord_scale_lengths[10] = {7, 7, 7, 7, 7, 8, 6, 8, 8, 8}; // Number of notes in each scale
+
+
 float c_frequency = 130.81;                      // for C3
 uint8_t chord_octave_change=4;
 uint8_t harp_octave_change=4;
@@ -580,8 +612,72 @@ uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
   return note;
 }
 // function to calculate the level of individual harp touch
+// Updated for scale mode
+// Updated calculate_note_harp function
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
-  if (!chromatic_harp_mode) {
+  if (scalar_harp_selection >= 1 && scalar_harp_selection <= 6) {
+    // Scalar harp mode: use existing scale_intervals
+    uint8_t scale_index = scalar_harp_selection - 1; // Adjust for 0-based array indexing
+    uint8_t scale_length = scale_lengths[scale_index]; // Number of notes in the selected scale
+    uint8_t octave = (string / scale_length) > 0 ? (string / scale_length) : 0;
+    uint8_t scale_degree = string % scale_length; // Map string to a scale degree
+    uint8_t root_note = key_offsets[key_signature_selection]; // Root note offset for the selected key
+    // Adjust root_note for relative minor scales (scalar_harp_selection 5, 6)
+    if (scalar_harp_selection >= 5) {
+      root_note = (root_note - 3) % 12; // Shift down 3 semitones for relative minor
+      if (root_note > 127) root_note += 12; // Handle underflow in uint8_t
+    }
+    uint8_t note = root_note + scale_intervals[scale_index][scale_degree] + (octave * 12);
+    return note + 12; // Keep +12 to avoid edge case problems in key of C
+  } else if (scalar_harp_selection == 8) {
+    // Chord scales mode: use scale corresponding to the current chord type
+    uint8_t scale_index;
+    if (current_chord == &major) {
+      scale_index = 0; // Major scale
+    } else if (current_chord == &maj_seventh) {
+      scale_index = 1; // Lydian scale
+    } else if (current_chord == &minor) {
+      scale_index = 2; // Natural Minor scale
+    } else if (current_chord == &seventh) {
+      scale_index = 3; // Mixolydian scale
+    } else if (current_chord == &min_seventh) {
+      scale_index = 4; // Dorian scale
+    } else if (current_chord == &dim) {
+      scale_index = 5; // Octatonic (Half-Whole) scale
+    } else if (current_chord == &aug) {
+      scale_index = 6; // Whole Tone scale
+    } else if (current_chord == &maj_sixth) {
+      scale_index = 7; // Diminished 6th scale (Barry Harris)
+    } else if (current_chord == &min_sixth) {
+      scale_index = 8; // Diminished 6th scale (Barry Harris)
+    } else if (current_chord == &full_dim) {
+      scale_index = 9; // Diminished 6th scale (Barry Harris)
+    } else {
+      scale_index = 0; // Default to Major scale if chord type is unrecognized
+    }
+
+    uint8_t scale_length = chord_scale_lengths[scale_index];
+    uint8_t octave = (string / scale_length) > 0 ? (string / scale_length) : 0;
+    uint8_t scale_degree = string % scale_length;
+    uint8_t root_note;
+
+    if (slashed && note_slash_level == 0) {
+      // Use slash chord root note
+      root_note = get_root_button(key_signature_selection, chord_frame_shift, slash_value);
+      root_note += sharp * (flat_button_modifier ? -1 : 1);
+    } else {
+      // Use fundamental chord root note
+      root_note = get_root_button(key_signature_selection, chord_frame_shift, fundamental);
+      root_note += sharp * (flat_button_modifier ? -1 : 1);
+    }
+
+    uint8_t note = root_note + chord_scale_intervals[scale_index][scale_degree] + (octave * 12);
+    return note;
+  } else if (chromatic_harp_mode) {
+    // Chromatic mode: unchanged behavior
+    return string + 24; // Chromatic notes starting from C2
+  } else {
+    // Default chord-based mode (scalar_harp_selection == 0): use harp_shuffling_array
     uint8_t note = 0;
     uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
     if (slashed && level % 10 == note_slash_level) {
@@ -598,8 +694,6 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
       }
     }
     return note;
-  } else {
-    return string + 24; // Chromatic mode
   }
 }
 //-->>RYTHM MODE UTILITIES
