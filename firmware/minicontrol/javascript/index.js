@@ -49,47 +49,47 @@ function handlechange(event) {
 }
 //function that builds the checkboxes for rythm pattern
 function checkbox_array() {
-  var container
-  for (var i = 0; i <  + 16; i++) {
-    target_adress=miniChordController.base_adress_rythm+i
+  var container;
+  for (var i = 0; i < 16; i++) {
+    target_adress = miniChordController.base_adress_rythm + i;
     container = document.getElementById(target_adress);
-    if(i<7){
+    if (i < 7) {
       container.innerHTML = "";
+      container.className = "line data_line content_line inactive";
       var padding_name = document.createElement("div");
-      padding_name.className="bloc B4 M0 S0";
-      padding_name.innerHTML=""
+      padding_name.className = "bloc B4 M0 S0";
+      padding_name.innerHTML = "";
       container.appendChild(padding_name);
       var padding_category = document.createElement("div");
-      padding_category.className="bloc B3 M2 S3";
-      padding_category.innerHTML=""
+      padding_category.className = "bloc B3 M2 S3";
+      padding_category.innerHTML = "";
       container.appendChild(padding_category);
       var padding_ID = document.createElement("div");
-      padding_ID.className="bloc B1 M1 S1";
-      padding_ID.innerHTML="***"
+      padding_ID.className = "bloc B1 M1 S1";
+      padding_ID.innerHTML = "***";
       container.appendChild(padding_ID);
       var name_zone = document.createElement("div");
-      name_zone.className=" bloc B4 M3 S4";
-      if(i<4){
-      name_zone.innerHTML="voice "+(i+1)
-      }else{
-      name_zone.innerHTML="voice "+(i-2)+'"'
+      name_zone.className = "bloc B4 M3 S4";
+      if (i < 4) {
+        name_zone.innerHTML = "voice " + (i + 1);
+      } else {
+        name_zone.innerHTML = "voice " + (i - 2) + '"';
       }
       container.appendChild(name_zone);
       var line = document.createElement("div");
-      line.className="checkbox_div bloc B5 M4 S7";
+      line.className = "checkbox_div bloc B5 M4 S7";
       container.appendChild(line);
-  
+
       for (var j = 0; j < 16; j++) {
         var checkBox = document.createElement("input");
-        checkBox.onclick=send_array_data;
+        checkBox.onclick = send_array_data;
         checkBox.type = "checkbox";
         checkBox.id = "checkbox" + i + j;
-  
         line.appendChild(checkBox);
       }
-    }else{
-    container.innerHTML = "";
-    container.style.display = 'block';
+    } else {
+      container.innerHTML = "";
+      container.style.display = "block";
     }
   }
 }
@@ -538,5 +538,22 @@ document.addEventListener('DOMContentLoaded', function() {
   const randomiseBtn = document.getElementById('randomise_btn');
   if (randomiseBtn) {
     randomiseBtn.addEventListener('click', generateRandomPreset);
+  }
+});
+
+// DARK MODE
+function toggleTheme() {
+  const body = document.body;
+  body.classList.toggle('dark-mode');
+  // Save the theme preference to localStorage
+  const isDarkMode = body.classList.contains('dark-mode');
+  localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+}
+
+// Load the saved theme on page load
+document.addEventListener('DOMContentLoaded', () => {
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme === 'dark') {
+    document.body.classList.add('dark-mode');
   }
 });

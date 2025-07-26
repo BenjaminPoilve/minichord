@@ -43,6 +43,8 @@ with open('parameters.json') as f: # Reserved adresses: 0 for system command and
                             a.span(_t='●',id='dot')
                             a.span(_t='',id='status_value')
                         with a.div():
+                            a.button(id='theme-toggle', onclick='toggleTheme()', title='Toggle Dark/Light Mode', **{'aria-label': 'Toggle dark mode'})
+                        with a.div():
                             a('To test and load user-submitted presets, visit the ')
                             a.a(href='./minishop.html', _t='minishop.')
                         with a.div(klass="line"):
