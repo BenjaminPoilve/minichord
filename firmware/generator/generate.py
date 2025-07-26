@@ -10,9 +10,16 @@ a = Airium(
     source_line_break_character="\n",  # str
     )
 
-cpp_start_file="void apply_audio_parameter(int adress, int value) {\r\n    switch(adress){\r\n"
-cpp_end_file="  }\r\n}"
-id_iterator=0
+cpp_start_file = """// Function declarations for sysex_handler.h
+void save_master_tuning();
+void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
+void set_harp_voice_frequency(uint8_t i, uint16_t current_note);
+
+void apply_audio_parameter(int adress, int value) {
+    switch(adress) {
+"""
+cpp_end_file = "  }\n}"
+id_iterator = 0
 
 #Making the HTML file
 with a.html():

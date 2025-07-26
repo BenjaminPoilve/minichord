@@ -1,5 +1,10 @@
+// Function declarations for sysex_handler.h
+void save_master_tuning();
+void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
+void set_harp_voice_frequency(uint8_t i, uint16_t current_note);
+
 void apply_audio_parameter(int adress, int value) {
-    switch(adress){
+    switch(adress) {
       case 20:
         bank_led_hue=value; set_led_color(bank_led_hue, 1.0, 1-led_attenuation);
         break;
@@ -29,6 +34,9 @@ void apply_audio_parameter(int adress, int value) {
         break;
       case 35:
         key_signature_selection=value;
+        break;
+      case 255:
+        digitalWrite(_MUTE_PIN, LOW); a4_master_tuning = constrain(value, 432, 444); c_frequency = 130.81 * (a4_master_tuning / 440.0); save_master_tuning(); if (current_line >= 0) { for (int i = 0; i < 4; i++) { if (chord_envelope_array[i]->isActive()) { set_chord_voice_frequency(i, current_chord_notes[i]); } } } for (int i = 0; i < 12; i++) { if (string_enveloppe_array[i]->isActive()) { set_harp_voice_frequency(i, current_harp_notes[i]); } } digitalWrite(_MUTE_PIN, HIGH);
         break;
       case 24:
         main_reverb.size(value/100.0);

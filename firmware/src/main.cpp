@@ -75,7 +75,8 @@ const int8_t flat_notes[6][6] = { // Notes affected by flats in each key, in har
   {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C} // 6 flats: Bb, Eb, Ab, Db, Gb, Cb
 };
 
-float c_frequency = 130.81;                      // for C3
+float a4_master_tuning = 440.0; // Master tuning A4 frequency in Hz (default 440 Hz)
+float c_frequency = 130.81 * (a4_master_tuning / 440.0); // C3 frequency, updated dynamically
 uint8_t chord_octave_change=4;
 uint8_t harp_octave_change=4;
 uint8_t chord_frame_shift=0;
@@ -360,10 +361,11 @@ void control_command(uint8_t command, uint8_t parameter) {
     Serial.println("Reporting all data");
     int8_t midi_data_array[parameter_size * 2];
     for (int i = 0; i < parameter_size; i++) {
-      midi_data_array[2 * i] = current_sysex_parameters[i] % 128;
-      midi_data_array[2 * i + 1] = current_sysex_parameters[i] / 128;
+      int16_t value = (i == 255) ? (int16_t)a4_master_tuning : current_sysex_parameters[i];
+      midi_data_array[2 * i] = value % 128;
+      midi_data_array[2 * i + 1] = value / 128;
     }
-    usbMIDI.sendSysEx(parameter_size * 2, (const uint8_t *)&midi_data_array,0);
+    usbMIDI.sendSysEx(parameter_size * 2, (const uint8_t *)&midi_data_array, 0);
     break;
   case 1: // SIGNAL TO WIPE MEMORY
     Serial.println("Wiping memory");
@@ -481,6 +483,39 @@ void turn_off_led(IntervalTimer *timer) {
 }
 
 //-->>AUDIO HELPER FUNCTIONS
+void save_master_tuning() {
+  digitalWrite(_MUTE_PIN, LOW); // Mute DAC
+  myfs.remove("master_tuning.txt");
+  File dataFile = myfs.open("master_tuning.txt", FILE_WRITE);
+  if (dataFile) {
+    dataFile.println(String(a4_master_tuning, 1)); // Store with 1 decimal place
+    Serial.println("Saved master tuning: " + String(a4_master_tuning, 1) + " Hz");
+    dataFile.close();
+  } else {
+    Serial.println("Error saving master tuning");
+  }
+  digitalWrite(_MUTE_PIN, HIGH); // Unmute DAC
+}
+
+void load_master_tuning() {
+  File dataFile = myfs.open("master_tuning.txt");
+  if (dataFile) {
+    String data_string = "";
+    while (dataFile.available()) {
+      data_string += char(dataFile.read());
+    }
+    a4_master_tuning = constrain(data_string.toFloat(), 432.0, 444.0);
+    Serial.println("Loaded master tuning: " + String(a4_master_tuning, 1) + " Hz");
+    dataFile.close();
+  } else {
+    Serial.println("No master tuning file, using default 440 Hz");
+    a4_master_tuning = 440.0;
+    save_master_tuning(); // Create default file
+  }
+  // Update c_frequency
+  c_frequency = 130.81 * (a4_master_tuning / 440.0);
+}
+
 // calculationg the ws array
 void calculate_ws_array() {
   for (int i = 0; i < 257; i++) {
@@ -493,35 +528,30 @@ void calculate_ws_array() {
 }
 // setting the pad_frequency
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
-  float note_freq = pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
+  float note_freq = pow(2, chord_octave_change) * c_frequency / 8 * pow(2, (current_note + transpose_semitones) / 12.0);
   AudioNoInterrupts();
   chords_vibrato_lfo.frequency(chord_vibrato_base_freq + chord_vibrato_keytrack * current_chord_notes[0]);
   chords_tremolo_lfo.frequency(chord_tremolo_base_freq + chord_tremolo_keytrack * current_chord_notes[0]);
-  // hord_vibrato_lfo_array[i]->frequency(chord_vibrato_base_freq);
-  // chord_tremolo_lfo_array[i]->frequency(chord_tremolo_base_freq);
   chord_voice_filter_array[i]->frequency(note_freq * chord_filter_keytrack + chord_filter_base_freq);
   chord_osc_1_array[i]->frequency(osc_1_freq_multiplier * note_freq);
   chord_osc_2_array[i]->frequency(osc_2_freq_multiplier * note_freq);
   chord_osc_3_array[i]->frequency(osc_3_freq_multiplier * note_freq);
-  // chord_voice_filter_array[i]->frequency(1*freq);
   AudioInterrupts();
-  if(chord_started_notes[i]!=0 && chord_started_notes[i]!=midi_base_note_transposed+current_note){
-    //we need to change the note without triggering the change, ie a pitch bend
-    usbMIDI.sendNoteOff(chord_started_notes[i],chord_release_velocity,1,chord_port);
-    chord_started_notes[i]=0;
-    usbMIDI.sendNoteOn(midi_base_note_transposed+current_note,chord_attack_velocity,1,chord_port);
-    chord_started_notes[i]=midi_base_note_transposed+ current_note;
+  if (chord_started_notes[i] != 0 && chord_started_notes[i] != midi_base_note_transposed + current_note) {
+    usbMIDI.sendNoteOff(chord_started_notes[i], chord_release_velocity, 1, chord_port);
+    chord_started_notes[i] = 0;
+    usbMIDI.sendNoteOn(midi_base_note_transposed + current_note, chord_attack_velocity, 1, chord_port);
+    chord_started_notes[i] = midi_base_note_transposed + current_note;
   }
 }
 // setting the harp
 void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
-  float note_freq =  pow(2,harp_octave_change)*c_frequency/4 * pow(2, (current_note+transpose_semitones) / 12.0);
-  float transient_freq =  64.0*c_frequency/4 *pow(2, ((current_note+transpose_semitones)%12+transient_note_level) / 12.0);
+  float note_freq = pow(2, harp_octave_change) * c_frequency / 4 * pow(2, (current_note + transpose_semitones) / 12.0);
+  float transient_freq = 64.0 * c_frequency / 4 * pow(2, ((current_note + transpose_semitones) % 12 + transient_note_level) / 12.0);
   AudioNoInterrupts();
   string_waveform_array[i]->frequency(note_freq);
   string_transient_waveform_array[i]->frequency(transient_freq);
   string_filter_array[i]->frequency(string_filter_base_freq + note_freq * string_filter_keytrack);
-  // string_vibrato_1.offset(0);
   AudioInterrupts();
 }
 // Function to compute MIDI note offset dynamically with circular frame shift
@@ -654,11 +684,13 @@ void recalculate_timer() {
 //--->>FILE HANDLING UTILITIES
 String serialize(int16_t data_array[], u_int16_t array_size) {
   String dataString = "0,";
-  dataString += String(current_bank_number); // to save the number of the bank for the online display
+  dataString += String(current_bank_number); // Save the bank number for the online display
   dataString += ",";
   for (u_int16_t i = 2; i < array_size; i++) {
-    dataString += String(data_array[i]);
-    dataString += ",";
+    if (i != 255) { // Skip index 255 (master tuning)
+      dataString += String(data_array[i]);
+      dataString += ",";
+    }
   }
   return dataString;
 }
@@ -671,7 +703,9 @@ void deserialize(String input, int16_t data_array[]) {
   p = strtok(string, ",");
   int i = 0;
   while (p && i < parameter_size) {
-    data_array[i] = atoi(p);
+    if (i != 255) { // Skip index 255 (master tuning)
+      data_array[i] = atoi(p);
+    }
     p = strtok(NULL, ",");
     i++;
   }
@@ -719,7 +753,6 @@ void load_config(int bank_number) {
     chord_envelope_filter_array[i]->noteOff();
   }
   trigger_chord = true; //to be ready to retrigger if needed
-
   File entry = myfs.open(bank_name[bank_number]);
   if (entry) {
     String data_string = "";
@@ -733,21 +766,25 @@ void load_config(int bank_number) {
   } else {
     entry.close();
     Serial.print("No preset, writing factory default");
-    save_config(bank_number, true); // reboot with default value
+    save_config(bank_number, true);
   }
-  // Loading the potentiometer
-  chord_pot.setup(chord_volume_sysex, 100, current_sysex_parameters[chord_pot_alternate_control], current_sysex_parameters[chord_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[chord_pot_alternate_storage],apply_audio_parameter,chord_pot_alternate_storage);
-  harp_pot.setup(harp_volume_sysex, 100, current_sysex_parameters[harp_pot_alternate_control], current_sysex_parameters[harp_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[harp_pot_alternate_storage],apply_audio_parameter,harp_pot_alternate_storage);
-  mod_pot.setup(current_sysex_parameters[mod_pot_main_control], current_sysex_parameters[mod_pot_main_range], current_sysex_parameters[mod_pot_alternate_control], current_sysex_parameters[mod_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[mod_pot_alternate_storage],apply_audio_parameter,mod_pot_alternate_storage);
+  // Load master tuning separately
+  load_master_tuning();
+  // Potentiometer setup
+  chord_pot.setup(chord_volume_sysex, 100, current_sysex_parameters[chord_pot_alternate_control], current_sysex_parameters[chord_pot_alternate_range], current_sysex_parameters, current_sysex_parameters[chord_pot_alternate_storage], apply_audio_parameter, chord_pot_alternate_storage);
+  harp_pot.setup(harp_volume_sysex, 100, current_sysex_parameters[harp_pot_alternate_control], current_sysex_parameters[harp_pot_alternate_range], current_sysex_parameters, current_sysex_parameters[harp_pot_alternate_storage], apply_audio_parameter, harp_pot_alternate_storage);
+  mod_pot.setup(current_sysex_parameters[mod_pot_main_control], current_sysex_parameters[mod_pot_main_range], current_sysex_parameters[mod_pot_alternate_control], current_sysex_parameters[mod_pot_alternate_range], current_sysex_parameters, current_sysex_parameters[mod_pot_alternate_storage], apply_audio_parameter, mod_pot_alternate_storage);
   Serial.println("pot setup done");
   for (int i = 1; i < parameter_size; i++) {
-    apply_audio_parameter(i, current_sysex_parameters[i]);
+    if (i != 255) { // Skip address 255 for master tuning
+      apply_audio_parameter(i, current_sysex_parameters[i]);
+    }
   }
-  control_command(0, 0); // tell itself to update the remote controller if present
+  control_command(0, 0); // Update remote controller
   chord_pot.force_update();
   harp_pot.force_update();
   mod_pot.force_update();
-  flag_save_needed=false;
+  flag_save_needed = false;
   //digitalWrite(_MUTE_PIN, HIGH); // unmuting the DAC
 }
 
