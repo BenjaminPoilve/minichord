@@ -363,7 +363,7 @@ void control_command(uint8_t command, uint8_t parameter) {
       midi_data_array[2 * i] = current_sysex_parameters[i] % 128;
       midi_data_array[2 * i + 1] = current_sysex_parameters[i] / 128;
     }
-    usbMIDI.sendSysEx(parameter_size * 2, (const uint8_t *)&midi_data_array,0);
+    usbMIDI.sendSysEx(parameter_size * 2, (const uint8_t *)&midi_data_array, 0);
     break;
   case 1: // SIGNAL TO WIPE MEMORY
     Serial.println("Wiping memory");
@@ -374,17 +374,24 @@ void control_command(uint8_t command, uint8_t parameter) {
     digitalWrite(_MUTE_PIN, HIGH); // unmuting the DAC
     break;
   case 2: // saving bank
+    if (parameter >= preset_number) {
+      Serial.printf("Error: Invalid parameter %d for saving bank\n", parameter);
+      break;
+    }
     Serial.print("Saving to bank: ");
     Serial.println(parameter);
     save_config(parameter, false);
     break;
   case 3: // setting bank to default
+    if (parameter >= preset_number) {
+      Serial.printf("Error: Invalid parameter %d for setting default bank\n", parameter);
+      break;
+    }
     Serial.print("Saving to bank: ");
     Serial.println(parameter);
     current_bank_number = parameter;
     save_config(parameter, true);
     break;
-
   default:
     break;
   }
@@ -678,15 +685,16 @@ void deserialize(String input, int16_t data_array[]) {
 }
 
 void save_config(int bank_number, bool default_save) {
+  if (bank_number < 0 || bank_number >= preset_number) {
+    Serial.printf("Error: Invalid bank_number %d in save_config\n", bank_number);
+    return;
+  }
   digitalWrite(_MUTE_PIN, LOW); // muting the DAC
-  current_bank_number=bank_number; //save to correctly write in the memory 
+  current_bank_number = bank_number; // save to correctly write in the memory 
   AudioNoInterrupts();
-  // myfs.quickFormat();  // performs a quick format of the created di
   myfs.remove(bank_name[bank_number]);
   File dataFile = myfs.open(bank_name[bank_number], FILE_WRITE);
-
   if (default_save) {
-    // if we need to put the default in memory
     Serial.println("Writing the default file");
     Serial.println(bank_name[bank_number]);
     String return_data = serialize(default_bank_sysex_parameters[bank_number], parameter_size);
@@ -694,22 +702,23 @@ void save_config(int bank_number, bool default_save) {
   } else {
     Serial.println("Saving current settings");
     for (u_int16_t i = 0; i < parameter_size; i++) {
-          Serial.println(current_sysex_parameters[i]);
+      Serial.println(current_sysex_parameters[i]);
     }
     dataFile.println(serialize(current_sysex_parameters, parameter_size));
   }
   Serial.print("Saved preset: ");
   Serial.println(dataFile.name());
   dataFile.close();
-
-  load_config(current_bank_number); //we do a full reload to initialise values
-  
-  // add something to set config_bit in the parameters to zero
+  load_config(current_bank_number); // we do a full reload to initialise values
   AudioInterrupts();
   digitalWrite(_MUTE_PIN, HIGH); // unmuting the DAC
 }
 
 void load_config(int bank_number) {
+  if (bank_number < 0 || bank_number >= preset_number) {
+    Serial.printf("Error: Invalid bank_number %d in load_config\n", bank_number);
+    return;
+  }
   //digitalWrite(_MUTE_PIN, LOW); // muting the DAC
   //Turn off chords notes
   for (int i = 0; i < 4; i++) {
@@ -719,7 +728,6 @@ void load_config(int bank_number) {
     chord_envelope_filter_array[i]->noteOff();
   }
   trigger_chord = true; //to be ready to retrigger if needed
-
   File entry = myfs.open(bank_name[bank_number]);
   if (entry) {
     String data_string = "";
@@ -736,9 +744,9 @@ void load_config(int bank_number) {
     save_config(bank_number, true); // reboot with default value
   }
   // Loading the potentiometer
-  chord_pot.setup(chord_volume_sysex, 100, current_sysex_parameters[chord_pot_alternate_control], current_sysex_parameters[chord_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[chord_pot_alternate_storage],apply_audio_parameter,chord_pot_alternate_storage);
-  harp_pot.setup(harp_volume_sysex, 100, current_sysex_parameters[harp_pot_alternate_control], current_sysex_parameters[harp_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[harp_pot_alternate_storage],apply_audio_parameter,harp_pot_alternate_storage);
-  mod_pot.setup(current_sysex_parameters[mod_pot_main_control], current_sysex_parameters[mod_pot_main_range], current_sysex_parameters[mod_pot_alternate_control], current_sysex_parameters[mod_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[mod_pot_alternate_storage],apply_audio_parameter,mod_pot_alternate_storage);
+  chord_pot.setup(chord_volume_sysex, 100, current_sysex_parameters[chord_pot_alternate_control], current_sysex_parameters[chord_pot_alternate_range], current_sysex_parameters, current_sysex_parameters[chord_pot_alternate_storage], apply_audio_parameter, chord_pot_alternate_storage);
+  harp_pot.setup(harp_volume_sysex, 100, current_sysex_parameters[harp_pot_alternate_control], current_sysex_parameters[harp_pot_alternate_range], current_sysex_parameters, current_sysex_parameters[harp_pot_alternate_storage], apply_audio_parameter, harp_pot_alternate_storage);
+  mod_pot.setup(current_sysex_parameters[mod_pot_main_control], current_sysex_parameters[mod_pot_main_range], current_sysex_parameters[mod_pot_alternate_control], current_sysex_parameters[mod_pot_alternate_range], current_sysex_parameters, current_sysex_parameters[mod_pot_alternate_storage], apply_audio_parameter, mod_pot_alternate_storage);
   Serial.println("pot setup done");
   for (int i = 1; i < parameter_size; i++) {
     apply_audio_parameter(i, current_sysex_parameters[i]);
@@ -747,7 +755,7 @@ void load_config(int bank_number) {
   chord_pot.force_update();
   harp_pot.force_update();
   mod_pot.force_update();
-  flag_save_needed=false;
+  flag_save_needed = false;
   //digitalWrite(_MUTE_PIN, HIGH); // unmuting the DAC
 }
 
