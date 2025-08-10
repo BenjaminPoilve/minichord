@@ -12,7 +12,7 @@
 #include <potentiometer.h>
 
 //>>SOFWTARE VERSION 
-int version_ID=0006; //to be read 00.03, stored at adress 7 in memory
+int version_ID=0007; //to be read 00.03, stored at adress 7 in memory
 //>>BUTTON ARRAYS<<
 debouncer harp_array[12];
 debouncer chord_matrix_array[22];
@@ -74,6 +74,42 @@ const int8_t flat_notes[6][6] = { // Notes affected by flats in each key, in har
   {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G}, // 5 flats: Bb, Eb, Ab, Db, Gb
   {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C} // 6 flats: Bb, Eb, Ab, Db, Gb, Cb
 };
+
+uint8_t scalar_harp_selection = 0; // Selected mode: 0=Chord-based (default), 1=Major, 2=Major Pentatonic, 3=Minor Pentatonic, 4=Diminished 6th Scale, 5=Relative Natural Minor, 6=Relative Harmonic Minor, 7=Relative Minor Pentatonic
+// Scale intervals (semitones from root note), indexed from 1
+const uint8_t scale_intervals[8][8] = {
+  {0, 2, 4, 5, 7, 9, 11, 0}, // 1: Major (Ionian)
+  {0, 2, 4, 7, 9, 0, 0, 0},  // 2: Major Pentatonic (5 notes, last three unused)
+  {0, 2, 3, 7, 10, 0, 0, 0}, // 3: Minor Pentatonic
+  {0, 2, 4, 5, 7, 8, 9, 11}, // 4: Diminished 6th Scale
+  {0, 2, 3, 5, 7, 8, 10, 0}, // 5: Relative Natural Minor (shifted +3)
+  {0, 2, 3, 5, 7, 8, 11, 0}, // 6: Relative Harmonic Minor (shifted +3)
+  {0, 2, 3, 7, 10, 0, 0, 0},  // 7: Relative Minor Pentatonic (shifted +3)
+  {0, 0, 0, 0, 0, 0, 0, 0} // 8: Scale Per Chord Mode
+};
+const uint8_t scale_lengths[8] = {7, 5, 5, 8, 7, 7, 5, 7}; // Number of notes in each scale
+
+// Define chord-specific scale intervals, updated for Barry Harris Diminished 6th scale and pentatonic scales
+const uint8_t chord_scale_intervals[15][8] = {
+  {0, 2, 4, 7, 9, 0, 0, 0},  // 0: Major Pentatonic for major chord (mode 9)
+  {0, 2, 4, 6, 9, 0, 0, 0},  // 1: Lydian Pentatonic for major seventh (mode 9, approximated)
+  {0, 3, 5, 7, 10, 0, 0, 0}, // 2: Minor Pentatonic for minor (mode 9)
+  {0, 2, 4, 7, 10, 0, 0, 0}, // 3: Mixolydian Pentatonic for seventh (dominant) (mode 9)
+  {0, 3, 5, 7, 9, 0, 0, 0}, // 4: Dorian Pentatonic for minor seventh (mode 9)
+  {0, 1, 3, 4, 6, 7, 9, 10}, // 5: Octatonic (Half-Whole) for diminished (both modes)
+  {0, 2, 4, 6, 8, 10, 0, 0}, // 6: Whole Tone for augmented (both modes)
+  {0, 2, 4, 5, 7, 8, 9, 11}, // 7: Diminished 6th (1, 2, 3, 4, 5, b6, 6, 7) for major sixth (Barry Harris, both modes)
+  {0, 2, 3, 5, 7, 8, 9, 11}, // 8: Diminished 6th Minor (1, 2, b3, 4, 5, b6, 6, 7) for minor sixth (Barry Harris, both modes)
+  {0, 2, 3, 4, 6, 7, 9, 11}, // 9: Offset Diminished 6th (1, 2, 3, 4, 5, b6, 6, 7) for full diminished (Barry Harris, both modes)
+  {0, 2, 4, 5, 7, 9, 11, 0}, // 10: Major (Ionian) for major chord (mode 8)
+  {0, 2, 3, 5, 7, 9, 10, 0}, // 11: Dorian for minor seventh (mode 8)
+  {0, 2, 4, 6, 7, 9, 11, 0}, // 12: Lydian for major seventh (mode 8)
+  {0, 2, 4, 5, 7, 9, 10, 0}, // 13: Mixolydian for seventh (dominant) (mode 8)
+  {0, 2, 3, 5, 7, 8, 10, 0}  // 14: Natural Minor (Aeolian) for minor (mode 8)
+};
+
+const uint8_t chord_scale_lengths[15] = {5, 5, 5, 5, 5, 8, 6, 8, 8, 8, 7, 7, 7, 7, 7}; // Number of notes in each scale
+
 
 float c_frequency = 130.81;                      // for C3
 uint8_t chord_octave_change=4;
@@ -581,25 +617,126 @@ uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
 }
 // function to calculate the level of individual harp touch
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
-  if (!chromatic_harp_mode) {
-    uint8_t note = 0;
+  if (!current_chord) {
+    current_chord = &major;
+    Serial.println("current_chord was null, defaulting to major");
+  }
+
+  uint8_t note = 0;
+  uint8_t effective_fundamental = (current_line >= 0) ? current_line : fundamental;
+  if (effective_fundamental > 6) {
+    effective_fundamental = 0;
+    Serial.printf("Invalid fundamental=%d, defaulting to 0\n", fundamental);
+  }
+
+  uint8_t root_note = slashed ? get_root_button(key_signature_selection, chord_frame_shift, slash_value)
+                              : get_root_button(key_signature_selection, chord_frame_shift, effective_fundamental);
+  int8_t sharp_offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
+
+  Serial.print("scalar_harp_selection="); Serial.println(scalar_harp_selection);
+  Serial.print("harp_shuffling_selection="); Serial.println(harp_shuffling_selection);
+  Serial.print("root_note="); Serial.print(root_note);
+  Serial.print(", current_chord="); Serial.println((current_chord == &major) ? "Major" : 
+                                                  (current_chord == &minor) ? "Minor" : 
+                                                  (current_chord == &seventh) ? "Seventh" : 
+                                                  (current_chord == &maj_seventh) ? "Maj Seventh" : 
+                                                  (current_chord == &min_seventh) ? "Min Seventh" : 
+                                                  (current_chord == &dim) ? "Dim" : 
+                                                  (current_chord == &aug) ? "Aug" : 
+                                                  (current_chord == &maj_sixth) ? "Maj Sixth" : 
+                                                  (current_chord == &min_sixth) ? "Min Sixth" : 
+                                                  (current_chord == &full_dim) ? "Full Dim" : "Unknown");
+
+  if (scalar_harp_selection == 0) {
+    // Chord tones mode (uses harp_shuffling_array)
     uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
     if (slashed && level % 10 == note_slash_level) {
-      if (!flat_button_modifier) {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
-      } else {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
-      }
+      note = (12 * int(level / 10) + root_note + sharp_offset);
     } else {
-      if (!flat_button_modifier) {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
-      } else {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
-      }
+      note = (12 * int(level / 10) + root_note + sharp_offset + (*current_chord)[level % 10]);
     }
+    Serial.printf("Chord tones mode, string %d, level=%d, note=%d\n", string, level, note);
+    return note;
+  } else if (scalar_harp_selection >= 1 && scalar_harp_selection <= 7) {
+    // Static scale modes (1–7)
+    uint8_t scale_index = scalar_harp_selection - 1;
+    uint8_t scale_length = scale_lengths[scale_index];
+    uint8_t octave = string / scale_length;
+    uint8_t scale_degree = string % scale_length;
+    uint8_t scale_root = key_offsets[key_signature_selection];
+    if (scalar_harp_selection >= 5 && scalar_harp_selection <= 7) {
+      scale_root = (scale_root - 3) % 12; // Relative minor adjustment
+      if (scale_root > 127) scale_root += 12;
+    }
+    note = scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12);
+    Serial.print("Scale mode "); Serial.print(scalar_harp_selection);
+    Serial.print(", scale_length="); Serial.print(scale_length);
+    Serial.print(", scale_intervals: ");
+    for (uint8_t i = 0; i < scale_length; i++) {
+      Serial.print(scale_intervals[scale_index][i]); Serial.print(" ");
+    }
+    Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
+                  string, scale_degree, octave, scale_intervals[scale_index][scale_degree], note + 12);
+    return note + 12;
+  } else if (scalar_harp_selection == 8 || scalar_harp_selection == 9) {
+    // Chord-specific scale mode (8 = full scales, 9 = pentatonic scales)
+    uint8_t scale_index;
+    bool use_pentatonic = (scalar_harp_selection == 9);
+    if (current_chord == &major) {
+      scale_index = use_pentatonic ? 0 : (barry_harris_mode ? 7 : 10); // Major Pentatonic or Ionian/Dim6
+    } else if (current_chord == &maj_seventh) {
+      scale_index = use_pentatonic ? 1 : 12; // Lydian Pentatonic or Lydian
+    } else if (current_chord == &minor) {
+      scale_index = use_pentatonic ? 2 : (barry_harris_mode ? 8 : 14); // Minor Pentatonic or Natural Minor/Dim6 Minor
+    } else if (current_chord == &seventh) {
+      scale_index = use_pentatonic ? 3 : 13; // Mixolydian Pentatonic or Mixolydian
+    } else if (current_chord == &min_seventh) {
+      scale_index = use_pentatonic ? 4 : 11; // Dorian Pentatonic or Dorian
+    } else if (current_chord == &dim) {
+      scale_index = 5; // Octatonic
+    } else if (current_chord == &aug) {
+      scale_index = 6; // Whole Tone
+    } else if (current_chord == &maj_sixth) {
+      scale_index = 7; // Diminished 6th
+    } else if (current_chord == &min_sixth) {
+      scale_index = 8; // Diminished 6th Minor
+    } else if (current_chord == &full_dim) {
+      scale_index = 9; // Offset Diminished 6th
+    } else {
+      scale_index = use_pentatonic ? 0 : 10; // Default to Major Pentatonic or Ionian
+      Serial.println("Warning: Unknown current_chord, defaulting to major scale");
+    }
+
+    uint8_t scale_length = chord_scale_lengths[scale_index];
+    uint8_t octave = string / scale_length;
+    uint8_t scale_degree = string % scale_length;
+    note = root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * 12);
+    Serial.print("Chord-specific scale mode "); Serial.print(scalar_harp_selection);
+    Serial.print(", scale_index="); Serial.print(scale_index);
+    Serial.print(", scale_length="); Serial.print(scale_length);
+    Serial.print(", scale_intervals: ");
+    for (uint8_t i = 0; i < scale_length; i++) {
+      Serial.print(chord_scale_intervals[scale_index][i]); Serial.print(" ");
+    }
+    Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
+                  string, scale_degree, octave, chord_scale_intervals[scale_index][scale_degree], note);
+    return note;
+  } else if (chromatic_harp_mode) {
+    // Chromatic mode
+    note = string + 24;
+    Serial.printf("Chromatic mode, string %d, note=%d\n", string, note);
     return note;
   } else {
-    return string + 24; // Chromatic mode
+    // Invalid mode, default to chord tones
+    Serial.printf("Invalid scalar_harp_selection=%d, defaulting to chord tones mode\n", scalar_harp_selection);
+    uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
+    if (slashed && level % 10 == note_slash_level) {
+      note = (12 * int(level / 10) + root_note + sharp_offset);
+    } else {
+      note = (12 * int(level / 10) + root_note + sharp_offset + (*current_chord)[level % 10]);
+    }
+    Serial.printf("Default chord tones mode, string %d, level=%d, note=%d\n", string, level, note);
+    return note;
   }
 }
 //-->>RYTHM MODE UTILITIES
@@ -941,7 +1078,7 @@ void updateChordNotes() {
 }
 
 void updateHarpNotes() {
-  if (button_pushed) {
+  if (button_pushed || scalar_harp_selection != current_sysex_parameters[36]) { // Check for scale mode change
     for (int i = 0; i < 12; i++) {
       current_harp_notes[i] = calculate_note_harp(i, slash_chord, sharp_active);
       if (change_held_strings && harp_started_notes[i] != 0) {

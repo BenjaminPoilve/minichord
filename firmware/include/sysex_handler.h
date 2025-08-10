@@ -100,6 +100,9 @@ void apply_audio_parameter(int adress, int value) {
       case 98:
         chromatic_harp_mode=value;
         break;
+      case 36:
+        scalar_harp_selection=value;
+        break;
       case 41:
         for (int i=0;i<12;i++){
           string_waveform_array[i]->amplitude(value/100.0);
