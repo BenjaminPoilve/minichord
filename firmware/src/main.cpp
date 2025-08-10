@@ -615,128 +615,221 @@ uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
   }
   return note;
 }
-// function to calculate the level of individual harp touch
-uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
+// Enum for chord types to replace pointer comparisons
+enum ChordType {
+  CHORD_MAJOR,
+  CHORD_MINOR,
+  CHORD_SEVENTH,
+  CHORD_MAJ_SEVENTH,
+  CHORD_MIN_SEVENTH,
+  CHORD_DIM,
+  CHORD_AUG,
+  CHORD_MAJ_SIXTH,
+  CHORD_MIN_SIXTH,
+  CHORD_FULL_DIM,
+  CHORD_UNKNOWN
+};
+
+// Initialize and validate the current chord
+uint8_t (*initialize_current_chord(uint8_t (*current_chord)[7], uint8_t (*major)[7]))[7] {
   if (!current_chord) {
-    current_chord = &major;
     Serial.println("current_chord was null, defaulting to major");
+    return major;
   }
+  return current_chord;
+}
 
-  uint8_t note = 0;
-  uint8_t effective_fundamental = (current_line >= 0) ? current_line : fundamental;
-  if (effective_fundamental > 6) {
-    effective_fundamental = 0;
+// Validate and get effective fundamental
+uint8_t get_effective_fundamental(int8_t current_line, uint8_t fundamental) {
+  uint8_t effective = (current_line >= 0) ? current_line : fundamental;
+  if (effective > 6) {
     Serial.printf("Invalid fundamental=%d, defaulting to 0\n", fundamental);
+    return 0;
   }
+  return effective;
+}
 
-  uint8_t root_note = slashed ? get_root_button(key_signature_selection, chord_frame_shift, slash_value)
-                              : get_root_button(key_signature_selection, chord_frame_shift, effective_fundamental);
-  int8_t sharp_offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
+// Get root note based on slash and fundamental
+uint8_t get_root_note(bool slashed, uint8_t key_signature_selection, 
+                     uint8_t chord_frame_shift, uint8_t effective_fundamental, 
+                     uint8_t slash_value) {
+  return slashed ? get_root_button(key_signature_selection, chord_frame_shift, slash_value)
+                : get_root_button(key_signature_selection, chord_frame_shift, effective_fundamental);
+}
 
+// Calculate sharp offset
+int8_t calculate_sharp_offset(bool sharp, bool flat_button_modifier) {
+  return sharp ? (flat_button_modifier ? -1 : 1) : 0;
+}
+
+// Get chord type for debugging and scale selection
+ChordType get_chord_type(uint8_t (*current_chord)[7]) {
+  if (current_chord == &major) return CHORD_MAJOR;
+  if (current_chord == &minor) return CHORD_MINOR;
+  if (current_chord == &seventh) return CHORD_SEVENTH;
+  if (current_chord == &maj_seventh) return CHORD_MAJ_SEVENTH;
+  if (current_chord == &min_seventh) return CHORD_MIN_SEVENTH;
+  if (current_chord == &dim) return CHORD_DIM;
+  if (current_chord == &aug) return CHORD_AUG;
+  if (current_chord == &maj_sixth) return CHORD_MAJ_SIXTH;
+  if (current_chord == &min_sixth) return CHORD_MIN_SIXTH;
+  if (current_chord == &full_dim) return CHORD_FULL_DIM;
+  return CHORD_UNKNOWN;
+}
+
+// Debug chord information
+void debug_chord_info(uint8_t scalar_harp_selection, uint8_t harp_shuffling_selection,
+                     uint8_t root_note, uint8_t (*current_chord)[7]) {
   Serial.print("scalar_harp_selection="); Serial.println(scalar_harp_selection);
   Serial.print("harp_shuffling_selection="); Serial.println(harp_shuffling_selection);
   Serial.print("root_note="); Serial.print(root_note);
-  Serial.print(", current_chord="); Serial.println((current_chord == &major) ? "Major" : 
-                                                  (current_chord == &minor) ? "Minor" : 
-                                                  (current_chord == &seventh) ? "Seventh" : 
-                                                  (current_chord == &maj_seventh) ? "Maj Seventh" : 
-                                                  (current_chord == &min_seventh) ? "Min Seventh" : 
-                                                  (current_chord == &dim) ? "Dim" : 
-                                                  (current_chord == &aug) ? "Aug" : 
-                                                  (current_chord == &maj_sixth) ? "Maj Sixth" : 
-                                                  (current_chord == &min_sixth) ? "Min Sixth" : 
-                                                  (current_chord == &full_dim) ? "Full Dim" : "Unknown");
+  Serial.print(", current_chord=");
+  
+  switch (get_chord_type(current_chord)) {
+    case CHORD_MAJOR: Serial.println("Major"); break;
+    case CHORD_MINOR: Serial.println("Minor"); break;
+    case CHORD_SEVENTH: Serial.println("Seventh"); break;
+    case CHORD_MAJ_SEVENTH: Serial.println("Maj Seventh"); break;
+    case CHORD_MIN_SEVENTH: Serial.println("Min Seventh"); break;
+    case CHORD_DIM: Serial.println("Dim"); break;
+    case CHORD_AUG: Serial.println("Aug"); break;
+    case CHORD_MAJ_SIXTH: Serial.println("Maj Sixth"); break;
+    case CHORD_MIN_SIXTH: Serial.println("Min Sixth"); break;
+    case CHORD_FULL_DIM: Serial.println("Full Dim"); break;
+    default: Serial.println("Unknown"); break;
+  }
+}
 
-  if (scalar_harp_selection == 0) {
-    // Chord tones mode (uses harp_shuffling_array)
-    uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
-    if (slashed && level % 10 == note_slash_level) {
-      note = (12 * int(level / 10) + root_note + sharp_offset);
-    } else {
-      note = (12 * int(level / 10) + root_note + sharp_offset + (*current_chord)[level % 10]);
-    }
-    Serial.printf("Chord tones mode, string %d, level=%d, note=%d\n", string, level, note);
-    return note;
-  } else if (scalar_harp_selection >= 1 && scalar_harp_selection <= 7) {
-    // Static scale modes (1–7)
-    uint8_t scale_index = scalar_harp_selection - 1;
-    uint8_t scale_length = scale_lengths[scale_index];
-    uint8_t octave = string / scale_length;
-    uint8_t scale_degree = string % scale_length;
-    uint8_t scale_root = key_offsets[key_signature_selection];
-    if (scalar_harp_selection >= 5 && scalar_harp_selection <= 7) {
-      scale_root = (scale_root - 3) % 12; // Relative minor adjustment
-      if (scale_root > 127) scale_root += 12;
-    }
-    note = scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12);
-    Serial.print("Scale mode "); Serial.print(scalar_harp_selection);
-    Serial.print(", scale_length="); Serial.print(scale_length);
-    Serial.print(", scale_intervals: ");
-    for (uint8_t i = 0; i < scale_length; i++) {
-      Serial.print(scale_intervals[scale_index][i]); Serial.print(" ");
-    }
-    Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
-                  string, scale_degree, octave, scale_intervals[scale_index][scale_degree], note + 12);
-    return note + 12;
-  } else if (scalar_harp_selection == 8 || scalar_harp_selection == 9) {
-    // Chord-specific scale mode (8 = full scales, 9 = pentatonic scales)
-    uint8_t scale_index;
-    bool use_pentatonic = (scalar_harp_selection == 9);
-    if (current_chord == &major) {
-      scale_index = use_pentatonic ? 0 : (barry_harris_mode ? 7 : 10); // Major Pentatonic or Ionian/Dim6
-    } else if (current_chord == &maj_seventh) {
-      scale_index = use_pentatonic ? 1 : 12; // Lydian Pentatonic or Lydian
-    } else if (current_chord == &minor) {
-      scale_index = use_pentatonic ? 2 : (barry_harris_mode ? 8 : 14); // Minor Pentatonic or Natural Minor/Dim6 Minor
-    } else if (current_chord == &seventh) {
-      scale_index = use_pentatonic ? 3 : 13; // Mixolydian Pentatonic or Mixolydian
-    } else if (current_chord == &min_seventh) {
-      scale_index = use_pentatonic ? 4 : 11; // Dorian Pentatonic or Dorian
-    } else if (current_chord == &dim) {
-      scale_index = 5; // Octatonic
-    } else if (current_chord == &aug) {
-      scale_index = 6; // Whole Tone
-    } else if (current_chord == &maj_sixth) {
-      scale_index = 7; // Diminished 6th
-    } else if (current_chord == &min_sixth) {
-      scale_index = 8; // Diminished 6th Minor
-    } else if (current_chord == &full_dim) {
-      scale_index = 9; // Offset Diminished 6th
-    } else {
-      scale_index = use_pentatonic ? 0 : 10; // Default to Major Pentatonic or Ionian
-      Serial.println("Warning: Unknown current_chord, defaulting to major scale");
-    }
-
-    uint8_t scale_length = chord_scale_lengths[scale_index];
-    uint8_t octave = string / scale_length;
-    uint8_t scale_degree = string % scale_length;
-    note = root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * 12);
-    Serial.print("Chord-specific scale mode "); Serial.print(scalar_harp_selection);
-    Serial.print(", scale_index="); Serial.print(scale_index);
-    Serial.print(", scale_length="); Serial.print(scale_length);
-    Serial.print(", scale_intervals: ");
-    for (uint8_t i = 0; i < scale_length; i++) {
-      Serial.print(chord_scale_intervals[scale_index][i]); Serial.print(" ");
-    }
-    Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
-                  string, scale_degree, octave, chord_scale_intervals[scale_index][scale_degree], note);
-    return note;
-  } else if (chromatic_harp_mode) {
-    // Chromatic mode
-    note = string + 24;
-    Serial.printf("Chromatic mode, string %d, note=%d\n", string, note);
-    return note;
+// Calculate note in chord tones mode
+uint8_t calculate_chord_tones_note(uint8_t string, uint8_t root_note, int8_t sharp_offset,
+                                 bool slashed, uint8_t note_slash_level, 
+                                 uint8_t (*current_chord)[7], uint8_t harp_shuffling_selection) {
+  uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
+  uint8_t note;
+  if (slashed && level % 10 == note_slash_level) {
+    note = (12 * (level / 10) + root_note + sharp_offset);
   } else {
-    // Invalid mode, default to chord tones
-    Serial.printf("Invalid scalar_harp_selection=%d, defaulting to chord tones mode\n", scalar_harp_selection);
-    uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
-    if (slashed && level % 10 == note_slash_level) {
-      note = (12 * int(level / 10) + root_note + sharp_offset);
-    } else {
-      note = (12 * int(level / 10) + root_note + sharp_offset + (*current_chord)[level % 10]);
-    }
-    Serial.printf("Default chord tones mode, string %d, level=%d, note=%d\n", string, level, note);
-    return note;
+    note = (12 * (level / 10) + root_note + sharp_offset + (*current_chord)[level % 10]);
+  }
+  Serial.printf("Chord tones mode, string %d, level=%d, note=%d\n", string, level, note);
+  return note;
+}
+
+// Calculate note in static scale mode
+uint8_t calculate_static_scale_note(uint8_t string, uint8_t scalar_harp_selection, 
+                                  uint8_t key_signature_selection) {
+  uint8_t scale_index = scalar_harp_selection - 1;
+  uint8_t scale_length = scale_lengths[scale_index];
+  uint8_t octave = string / scale_length;
+  uint8_t scale_degree = string % scale_length;
+  uint8_t scale_root = key_offsets[key_signature_selection];
+  
+  if (scalar_harp_selection >= 5 && scalar_harp_selection <= 7) {
+    scale_root = (scale_root - 3) % 12; // Relative minor adjustment
+    if (scale_root > 127) scale_root += 12;
+  }
+  
+  uint8_t note = scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12);
+  
+  Serial.print("Scale mode "); Serial.print(scalar_harp_selection);
+  Serial.print(", scale_length="); Serial.print(scale_length);
+  Serial.print(", scale_intervals: ");
+  for (uint8_t i = 0; i < scale_length; i++) {
+    Serial.print(scale_intervals[scale_index][i]); Serial.print(" ");
+  }
+  Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
+                string, scale_degree, octave, scale_intervals[scale_index][scale_degree], note + 12);
+  return note + 12;
+}
+
+// Calculate scale index for chord-specific mode
+uint8_t get_chord_scale_index(ChordType chord_type, bool use_pentatonic, bool barry_harris_mode) {
+  switch (chord_type) {
+    case CHORD_MAJOR:
+      return use_pentatonic ? 0 : (barry_harris_mode ? 7 : 10); // Major Pentatonic or Ionian/Dim6
+    case CHORD_MAJ_SEVENTH:
+      return use_pentatonic ? 1 : 12; // Lydian Pentatonic or Lydian
+    case CHORD_MINOR:
+      return use_pentatonic ? 2 : (barry_harris_mode ? 8 : 14); // Minor Pentatonic or Natural Minor/Dim6 Minor
+    case CHORD_SEVENTH:
+      return use_pentatonic ? 3 : 13; // Mixolydian Pentatonic or Mixolydian
+    case CHORD_MIN_SEVENTH:
+      return use_pentatonic ? 4 : 11; // Dorian Pentatonic or Dorian
+    case CHORD_DIM:
+      return 5; // Octatonic
+    case CHORD_AUG:
+      return 6; // Whole Tone
+    case CHORD_MAJ_SIXTH:
+      return 7; // Diminished 6th
+    case CHORD_MIN_SIXTH:
+      return 8; // Diminished 6th Minor
+    case CHORD_FULL_DIM:
+      return 9; // Offset Diminished 6th
+    default:
+      Serial.println("Warning: Unknown current_chord, defaulting to major scale");
+      return use_pentatonic ? 0 : 10; // Default to Major Pentatonic or Ionian
+  }
+}
+
+// Calculate note in chord-specific scale mode
+uint8_t calculate_chord_specific_note(uint8_t string, uint8_t scalar_harp_selection,
+                                    uint8_t root_note, int8_t sharp_offset, 
+                                    uint8_t (*current_chord)[7], bool barry_harris_mode) {
+  bool use_pentatonic = (scalar_harp_selection == 9);
+  uint8_t scale_index = get_chord_scale_index(get_chord_type(current_chord), use_pentatonic, barry_harris_mode);
+  uint8_t scale_length = chord_scale_lengths[scale_index];
+  uint8_t octave = string / scale_length;
+  uint8_t scale_degree = string % scale_length;
+  uint8_t note = root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * 12);
+  
+  Serial.print("Chord-specific scale mode "); Serial.print(scalar_harp_selection);
+  Serial.print(", scale_index="); Serial.print(scale_index);
+  Serial.print(", scale_length="); Serial.print(scale_length);
+  Serial.print(", scale_intervals: ");
+  for (uint8_t i = 0; i < scale_length; i++) {
+    Serial.print(chord_scale_intervals[scale_index][i]); Serial.print(" ");
+  }
+  Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
+                string, scale_degree, octave, chord_scale_intervals[scale_index][scale_degree], note);
+  return note;
+}
+
+// Calculate note in chromatic mode
+uint8_t calculate_chromatic_note(uint8_t string) {
+  uint8_t note = string + 24;
+  Serial.printf("Chromatic mode, string %d, note=%d\n", string, note);
+  return note;
+}
+
+// Main function
+uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
+  current_chord = initialize_current_chord(current_chord, &major);
+  uint8_t effective_fundamental = get_effective_fundamental(current_line, fundamental);
+  uint8_t root_note = get_root_note(slashed, key_signature_selection, chord_frame_shift, 
+                                   effective_fundamental, slash_value);
+  int8_t sharp_offset = calculate_sharp_offset(sharp, flat_button_modifier);
+  
+  debug_chord_info(scalar_harp_selection, harp_shuffling_selection, root_note, current_chord);
+  
+  // Prioritize chromatic mode
+  if (chromatic_harp_mode) {
+    Serial.println("Chromatic mode active");
+    return calculate_chromatic_note(string);
+  }
+  
+  if (scalar_harp_selection == 0) {
+    return calculate_chord_tones_note(string, root_note, sharp_offset, slashed, 
+                                    note_slash_level, current_chord, harp_shuffling_selection);
+  } else if (scalar_harp_selection >= 1 && scalar_harp_selection <= 7) {
+    return calculate_static_scale_note(string, scalar_harp_selection, key_signature_selection);
+  } else if (scalar_harp_selection == 8 || scalar_harp_selection == 9) {
+    return calculate_chord_specific_note(string, scalar_harp_selection, root_note, 
+                                       sharp_offset, current_chord, barry_harris_mode);
+  } else {
+    Serial.printf("Invalid scalar_harp_selection=%d, defaulting to chord tones mode\n", 
+                  scalar_harp_selection);
+    return calculate_chord_tones_note(string, root_note, sharp_offset, slashed, 
+                                    note_slash_level, current_chord, harp_shuffling_selection);
   }
 }
 //-->>RYTHM MODE UTILITIES
