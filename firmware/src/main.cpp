@@ -694,9 +694,17 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
         }
     }
 
-    DEBUG_PRINTF("get_root_button: key=%d, button=%d, note=%d\n", key, button, note);
+    // --- Preserve octave while normalizing ---
+    int8_t octave = note / 12;
+    int8_t note_class = ((note % 12) + 12) % 12; // wrap to [0, 11]
+    note = octave * 12 + note_class;
+
+    DEBUG_PRINTF("get_root_button: key=%d, button=%d, note_class=%d, octave=%d, final_note=%d\n",
+                 key, button, note_class, octave, note);
+
     return note;
 }
+
 
 // function to calculate the frequency of individual chord notes
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
