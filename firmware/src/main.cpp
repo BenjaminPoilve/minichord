@@ -64,8 +64,8 @@ bool key_change_mode = false; // Flag for key change mode
 elapsedMillis key_change_timer; // Timer for key change mode timeout and logging
 bool preset_inhibit = false; // Flag to inhibit preset changes
 const uint32_t KEY_CHANGE_TIMEOUT = 5000; // 5-second timeout for key change mode
-const uint32_t SIMULTANEOUS_WINDOW = 150; // 100ms window for Up+Down simultaneous press
-const uint32_t PRESET_INHIBIT_DELAY = 300; // 200ms preset inhibition after key change mode
+const uint32_t SIMULTANEOUS_WINDOW = 400; // 100ms window for Up+Down simultaneous press
+const uint32_t PRESET_INHIBIT_DELAY = 400; // 200ms preset inhibition after key change mode
 const uint32_t LOG_THROTTLE = 500; // 500ms throttle for logs
 
 // Expanded KeySig enum
