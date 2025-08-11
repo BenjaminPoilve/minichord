@@ -1445,76 +1445,207 @@ void pulse_key_change_led() {
   }
 }
 
+// Timer function for key flash
+void key_flash_off(IntervalTimer *timer) {
+  timer->end();
+  if (key_change_mode) {
+    // Restore pulsing LED (handled by pulse_key_change_led)
+    set_led_color(0, 1.0, 0.2); // Dim red to match pulsing state
+  } else {
+    // Restore bank color
+    set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
+  }
+}
+
 void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up_state, bool down_state) {
   static bool up_pressed = false, down_pressed = false;
   static elapsedMillis up_press_time, down_press_time;
   static bool logged_mode = false;
-  static bool chord_pressed = false; // Track if a chord button was pressed
+  static bool chord_pressed = false;
+  static int selected_key = -1;
+  static const char* selected_key_name = "";
+  static IntervalTimer key_flash_timer;
+
+  // Hue values for key signatures (0-360°, spread over 21 keys)
+  static const float key_hues[21] = {
+    0.0,    // C
+    17.14,  // G
+    34.29,  // D
+    51.43,  // A
+    68.57,  // E
+    85.71,  // B
+    102.86, // F
+    120.0,  // Bb
+    137.14, // Eb
+    154.29, // Ab
+    171.43, // Db
+    188.57, // Gb/F#
+    205.71, // C#/Db
+    222.86, // G#/Ab
+    240.0,  // D#/Eb
+    257.14, // A#/Bb
+    274.29, // E#/F
+    291.43, // B#/C
+    308.57, // Fb/E
+    325.71, // Cb/B
+    342.86  // E#/F (same as F)
+  };
 
   // Handle Up/Down button presses
   if (up_transition == 2) {
     up_pressed = true;
     up_press_time = 0;
+    Serial.println("Up button pressed");
   }
   if (down_transition == 2) {
     down_pressed = true;
     down_press_time = 0;
+    Serial.println("Down button pressed");
   }
   if (up_transition == 1) {
     up_pressed = false;
-    key_change_timer = 0; // Reset timer on release to extend preset_inhibit
+    Serial.println("Up button released");
+    key_change_timer = 0;
   }
   if (down_transition == 1) {
     down_pressed = false;
-    key_change_timer = 0; // Reset timer on release to extend preset_inhibit
+    Serial.println("Down button released");
+    key_change_timer = 0;
   }
 
-  // Inhibit preset changes while both buttons are held
-  if (up_state && down_state) {
-    preset_inhibit = true;
-  }
-
-  // Enter key change mode if both buttons are pressed within 100ms
-  if (!key_change_mode && (up_pressed || down_pressed)) {
-    if (up_pressed && down_pressed && up_press_time < SIMULTANEOUS_WINDOW && down_press_time < SIMULTANEOUS_WINDOW) {
-      key_change_mode = true;
-      preset_inhibit = true;
-      key_change_timer = 0;
-      chord_pressed = false; // Reset chord press state
-      color_led_blink_timer.begin(pulse_key_change_led, 100000); // Start pulsing blue LED
-      if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
-        Serial.println("Entered key change mode");
-        logged_mode = true;
-      }
-    } else if ((up_pressed && down_press_time < SIMULTANEOUS_WINDOW) ||
-               (down_pressed && up_press_time < SIMULTANEOUS_WINDOW)) {
-      preset_inhibit = true; // Inhibit presets during window
-    }
-  }
-
-  // Exit key change mode if both Up/Down buttons are released or timeout occurs
-  if (key_change_mode && (!up_state && !down_state) && !chord_pressed) {
-    key_change_mode = false;
-    color_led_blink_timer.end();
-    set_led_color(bank_led_hue, 1.0, 1 - led_attenuation); // Restore bank color
+  // Enter key change mode
+  if (!key_change_mode && up_pressed && down_pressed && 
+      up_press_time < SIMULTANEOUS_WINDOW && down_press_time < SIMULTANEOUS_WINDOW) {
+    key_change_mode = true;
     preset_inhibit = true;
     key_change_timer = 0;
-    if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
-      Serial.println("Exited key change mode");
+    chord_pressed = false;
+    selected_key = -1;
+    selected_key_name = "";
+    color_led_blink_timer.begin(pulse_key_change_led, 100000);
+    if (!logged_mode) {
+      Serial.println("Entered key change mode");
       logged_mode = true;
     }
-  } else if (key_change_mode && key_change_timer > KEY_CHANGE_TIMEOUT) {
+  }
+
+  // Inhibit preset changes
+  if (key_change_mode || (up_state && down_state)) {
+    preset_inhibit = true;
+  }
+
+  // Handle chord button presses in key change mode
+  if (key_change_mode) {
+    bool any_chord_pressed = false;
+    for (int i = 1; i <= 21; i++) {
+      int transition = chord_matrix_array[i].read_transition();
+      if (transition == 2) { // Rising edge
+        any_chord_pressed = true;
+        chord_pressed = true;
+        int row = (i - 1) / 3; // Hardware row: 0=B, 1=E, 2=A, 3=D, 4=G, 5=C, 6=F
+        int user_row = 6 - row; // User row: 0=F, 1=C, 2=G, 3=D, 4=A, 5=E, 6=B
+        int col = (i - 1) % 3; // 0=sharp, 1=natural, 2=flat
+
+        // Determine the selected key
+        if (col == 0) { // Sharp keys
+          switch (user_row) {
+            case 0: selected_key = KEY_SIG_Fs; selected_key_name = "F#"; break;
+            case 1: selected_key = KEY_SIG_Cs; selected_key_name = "C#"; break;
+            case 2: selected_key = KEY_SIG_Gs; selected_key_name = "G#"; break;
+            case 3: selected_key = KEY_SIG_Ds; selected_key_name = "D#"; break;
+            case 4: selected_key = KEY_SIG_As; selected_key_name = "A#"; break;
+            case 5: selected_key = KEY_SIG_Es; selected_key_name = "E#"; break;
+            case 6: selected_key = KEY_SIG_Bs; selected_key_name = "B#"; break;
+          }
+        } else if (col == 1) { // Natural keys
+          switch (user_row) {
+            case 0: selected_key = KEY_SIG_F; selected_key_name = "F"; break;
+            case 1: selected_key = KEY_SIG_C; selected_key_name = "C"; break;
+            case 2: selected_key = KEY_SIG_G; selected_key_name = "G"; break;
+            case 3: selected_key = KEY_SIG_D; selected_key_name = "D"; break;
+            case 4: selected_key = KEY_SIG_A; selected_key_name = "A"; break;
+            case 5: selected_key = KEY_SIG_E; selected_key_name = "E"; break;
+            case 6: selected_key = KEY_SIG_B; selected_key_name = "B"; break;
+          }
+        } else { // Flat keys
+          switch (user_row) {
+            case 0: selected_key = KEY_SIG_Fb; selected_key_name = "Fb"; break;
+            case 1: selected_key = KEY_SIG_Cb; selected_key_name = "Cb"; break;
+            case 2: selected_key = KEY_SIG_Gb; selected_key_name = "Gb"; break;
+            case 3: selected_key = KEY_SIG_Db; selected_key_name = "Db"; break;
+            case 4: selected_key = KEY_SIG_Ab; selected_key_name = "Ab"; break;
+            case 5: selected_key = KEY_SIG_Eb; selected_key_name = "Eb"; break;
+            case 6: selected_key = KEY_SIG_Bb; selected_key_name = "Bb"; break;
+          }
+        }
+        if (key_change_timer >= LOG_THROTTLE) {
+          Serial.printf("Chord button %d pressed: Key signature %s (value=%d)\n", 
+                       i, selected_key_name, selected_key);
+          key_change_timer = 0;
+        }
+      }
+    }
+
+    // Apply the selected key and trigger flash
+    if (chord_pressed && selected_key != -1 && selected_key != key_signature_selection) {
+      key_flash_timer.end(); // Cancel any ongoing flash
+      key_signature_selection = selected_key;
+      current_sysex_parameters[35] = selected_key;
+      updateHarpNotes();
+      updateChordNotes();
+      flag_save_needed = true;
+      // Trigger LED flash with key-specific hue
+      set_led_color(key_hues[selected_key], 1.0, 1.0); // Full brightness
+      key_flash_timer.priority(255);
+      key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 200000); // 200ms flash
+      if (key_change_timer >= LOG_THROTTLE) {
+        Serial.printf("Key signature changed to %s (value=%d, hue=%.2f)\n", 
+                     selected_key_name, selected_key, key_hues[selected_key]);
+        key_change_timer = 0;
+      }
+    }
+
+    // Update any_chord_pressed
+    any_chord_pressed = false;
+    for (int i = 1; i <= 21; i++) {
+      if (chord_matrix_array[i].read_value()) {
+        any_chord_pressed = true;
+        break;
+      }
+    }
+
+    // Exit key change mode
+    if (key_change_mode && !up_state && !down_state && !any_chord_pressed) {
+      key_change_mode = false;
+      color_led_blink_timer.end();
+      key_flash_timer.end();
+      set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
+      preset_inhibit = true;
+      key_change_timer = 0;
+      chord_pressed = false;
+      if (key_change_timer >= LOG_THROTTLE) {
+        Serial.println("Exited key change mode after UP+DOWN release");
+        logged_mode = true;
+      }
+    }
+  }
+
+  // Handle timeout
+  if (key_change_mode && key_change_timer > KEY_CHANGE_TIMEOUT) {
     key_change_mode = false;
     color_led_blink_timer.end();
+    key_flash_timer.end();
     set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
     preset_inhibit = true;
     key_change_timer = 0;
+    chord_pressed = false;
     Serial.println("Key change mode timed out");
     logged_mode = true;
   }
 
-  // Clear preset inhibition after delay
-  if (!key_change_mode && preset_inhibit && key_change_timer > PRESET_INHIBIT_DELAY && !(up_state && down_state)) {
+  // Clear preset inhibition
+  if (!key_change_mode && preset_inhibit && key_change_timer > PRESET_INHIBIT_DELAY && 
+      !(up_state && down_state)) {
     preset_inhibit = false;
     if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
       Serial.println("Preset inhibition cleared");
@@ -1522,90 +1653,9 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
     }
   }
 
-  // Reset logging flag when mode changes
+  // Reset logging flag
   if (!key_change_mode && logged_mode && key_change_timer >= LOG_THROTTLE) {
     logged_mode = false;
-  }
-
-  // Handle chord button presses in key change mode
-  if (key_change_mode) {
-    bool any_chord_pressed = false;
-    int selected_key = -1;
-    const char* selected_key_name = "";
-
-    for (int i = 1; i <= 21; i++) {
-      if (chord_matrix_array[i].read_transition() == 2) {
-        any_chord_pressed = true;
-        if (!chord_pressed) { // Only process the first valid press
-          chord_pressed = true;
-          int row = (i - 1) / 3; // Hardware row: 0=B, 1=E, 2=A, 3=D, 4=G, 5=C, 6=F
-          int user_row = 6 - row; // User row: 0=F, 1=C, 2=G, 3=D, 4=A, 5=E, 6=B
-          int col = (i - 1) % 3; // 0=sharp, 1=natural, 2=flat
-
-          if (col == 0) { // Top row: sharp keys (F#, C#, G#, D#, A#, E#, B#)
-            switch (user_row) {
-              case 0: selected_key = KEY_SIG_Fs; selected_key_name = "F#"; break;
-              case 1: selected_key = KEY_SIG_Cs; selected_key_name = "C#"; break;
-              case 2: selected_key = KEY_SIG_Gs; selected_key_name = "G#"; break;
-              case 3: selected_key = KEY_SIG_Ds; selected_key_name = "D#"; break;
-              case 4: selected_key = KEY_SIG_As; selected_key_name = "A#"; break;
-              case 5: selected_key = KEY_SIG_Es; selected_key_name = "E#"; break;
-              case 6: selected_key = KEY_SIG_Bs; selected_key_name = "B#"; break;
-            }
-          } else if (col == 1) { // Middle row: natural keys (F, C, G, D, A, E, B)
-            switch (user_row) {
-              case 0: selected_key = KEY_SIG_F; selected_key_name = "F"; break;
-              case 1: selected_key = KEY_SIG_C; selected_key_name = "C"; break;
-              case 2: selected_key = KEY_SIG_G; selected_key_name = "G"; break;
-              case 3: selected_key = KEY_SIG_D; selected_key_name = "D"; break;
-              case 4: selected_key = KEY_SIG_A; selected_key_name = "A"; break;
-              case 5: selected_key = KEY_SIG_E; selected_key_name = "E"; break;
-              case 6: selected_key = KEY_SIG_B; selected_key_name = "B"; break;
-            }
-          } else { // Bottom row: flat keys (Fb, Cb, Gb, Db, Ab, Eb, Bb)
-            switch (user_row) {
-              case 0: selected_key = KEY_SIG_Fb; selected_key_name = "Fb"; break;
-              case 1: selected_key = KEY_SIG_Cb; selected_key_name = "Cb"; break;
-              case 2: selected_key = KEY_SIG_Gb; selected_key_name = "Gb"; break;
-              case 3: selected_key = KEY_SIG_Db; selected_key_name = "Db"; break;
-              case 4: selected_key = KEY_SIG_Ab; selected_key_name = "Ab"; break;
-              case 5: selected_key = KEY_SIG_Eb; selected_key_name = "Eb"; break;
-              case 6: selected_key = KEY_SIG_Bb; selected_key_name = "Bb"; break;
-            }
-          }
-          if (key_change_timer >= LOG_THROTTLE) {
-            Serial.printf("Chord button %d pressed: Key signature %s (value=%d)\n", i, selected_key_name, selected_key);
-            key_change_timer = 0;
-          }
-        }
-      }
-    }
-
-    // Apply the selected key only if a valid press was detected
-    if (chord_pressed && selected_key != -1) {
-      key_signature_selection = selected_key;
-      current_sysex_parameters[35] = selected_key;
-      updateHarpNotes();
-      updateChordNotes();
-      if (key_change_timer >= LOG_THROTTLE) {
-        Serial.printf("Key signature changed to %s (value=%d)\n", selected_key_name, selected_key);
-        key_change_timer = 0;
-      }
-    }
-
-    // Exit key change mode only when all chord buttons are released
-    if (chord_pressed && !any_chord_pressed) {
-      key_change_mode = false;
-      color_led_blink_timer.end();
-      set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
-      preset_inhibit = true;
-      key_change_timer = 0;
-      chord_pressed = false;
-      if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
-        Serial.println("Exited key change mode after chord selection");
-        logged_mode = true;
-      }
-    }
   }
 }
 
