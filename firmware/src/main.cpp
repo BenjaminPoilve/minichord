@@ -32,6 +32,12 @@ LittleFS_Program myfs; // to save the settings
 float color_led_blink_val = 1.0;
 bool led_blinking_flag = false;
 float led_attenuation = 0.0; 
+//>>DEBUG MODE<<
+bool debug_mode = true; // Global flag to enable/disable debug logging
+#define DEBUG_PRINT(x) if (debug_mode) Serial.print(x)
+#define DEBUG_PRINTLN(x) if (debug_mode) Serial.println(x)
+#define DEBUG_PRINTF(x, ...) if (debug_mode) Serial.printf(x, __VA_ARGS__)
+
 //>>CHORD DEFINITION<<
 //for each chord, we first have the 4 notes of the chord, then decoration that might be used in specific modes
 uint8_t major[7] = {0, 4, 7, 12, 2, 5, 9};  // After the four notes of the chord (fundamental, third, fifth of seven, and octave of fifth, the next notes are the second fourth and sixth)
@@ -440,7 +446,7 @@ void set_led_color(float h, float s, float v) {
 void control_command(uint8_t command, uint8_t parameter) {
   switch (command) {
   case 0: // SIGNAL TO SEND BACK ALL DATA
-    Serial.println("Reporting all data");
+    DEBUG_PRINTLN("Reporting all data");
     int8_t midi_data_array[parameter_size * 2];
     for (int i = 0; i < parameter_size; i++) {
       midi_data_array[2 * i] = current_sysex_parameters[i] % 128;
@@ -449,7 +455,7 @@ void control_command(uint8_t command, uint8_t parameter) {
     usbMIDI.sendSysEx(parameter_size * 2, (const uint8_t *)&midi_data_array,0);
     break;
   case 1: // SIGNAL TO WIPE MEMORY
-    Serial.println("Wiping memory");
+    DEBUG_PRINTLN("Wiping memory");
     digitalWrite(_MUTE_PIN, LOW); // muting the DAC
     myfs.quickFormat();
     current_bank_number = 0;
@@ -457,13 +463,13 @@ void control_command(uint8_t command, uint8_t parameter) {
     digitalWrite(_MUTE_PIN, HIGH); // unmuting the DAC
     break;
   case 2: // saving bank
-    Serial.print("Saving to bank: ");
-    Serial.println(parameter);
+    DEBUG_PRINT("Saving to bank: ");
+    DEBUG_PRINTLN(parameter);
     save_config(parameter, false);
     break;
   case 3: // setting bank to default
-    Serial.print("Saving to bank: ");
-    Serial.println(parameter);
+    DEBUG_PRINT("Saving to bank: ");
+    DEBUG_PRINTLN(parameter);
     current_bank_number = parameter;
     save_config(parameter, true);
     break;
@@ -484,11 +490,11 @@ void processMIDI(void) {
     if (adress == 0) { // it is a control command
       control_command(data[3], data[4]);
     } else {
-      Serial.print("Received instruction on adress:");
-      Serial.print(adress);
+      DEBUG_PRINT("Received instruction on adress:");
+      DEBUG_PRINT(adress);
       int value = data[3] + 128 * data[4];
-      Serial.print(" with value:");
-      Serial.println(value);
+      DEBUG_PRINT(" with value:");
+      DEBUG_PRINTLN(value);
       current_sysex_parameters[adress] = value;
       apply_audio_parameter(adress, value);
     }
@@ -497,7 +503,7 @@ void processMIDI(void) {
     rythm_current_step=0;
     midi_clock_current_step=0;
     rythm_tick_function();
-    Serial.println("Start received");
+    DEBUG_PRINTLN("Start received");
     rythm_timer.end();
   }
   if(type==usbMIDI.Stop && rythm_mode){
@@ -652,7 +658,7 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
         if (button == double_sharp_notes[double_sharp_index][i]) {
           note += 1; // Add double-sharp
           if (key_change_timer >= LOG_THROTTLE) {
-            Serial.printf("Applied double-sharp to button %d in key %d\n", button, key);
+            DEBUG_PRINTF("Applied double-sharp to button %d in key %d\n", button, key);
             key_change_timer = 0;
           }
         }
@@ -671,7 +677,7 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
         if (button == double_flat_notes[double_flat_index][i]) {
           note -= 1; // Add double-flat (Bbb)
           if (key_change_timer >= LOG_THROTTLE) {
-            Serial.printf("Applied double-flat to button %d in key %d\n", button, key);
+            DEBUG_PRINTF("Applied double-flat to button %d in key %d\n", button, key);
             key_change_timer = 0;
           }
         }
@@ -717,7 +723,7 @@ enum ChordType {
 // Initialize and validate the current chord
 uint8_t (*initialize_current_chord(uint8_t (*current_chord)[7], uint8_t (*major)[7]))[7] {
   if (!current_chord) {
-    Serial.println("current_chord was null, defaulting to major");
+    DEBUG_PRINTLN("current_chord was null, defaulting to major");
     return major;
   }
   return current_chord;
@@ -727,7 +733,7 @@ uint8_t (*initialize_current_chord(uint8_t (*current_chord)[7], uint8_t (*major)
 uint8_t get_effective_fundamental(int8_t current_line, uint8_t fundamental) {
   uint8_t effective = (current_line >= 0) ? current_line : fundamental;
   if (effective > 6) {
-    Serial.printf("Invalid fundamental=%d, defaulting to 0\n", fundamental);
+    DEBUG_PRINTF("Invalid fundamental=%d, defaulting to 0\n", fundamental);
     return 0;
   }
   return effective;
@@ -764,23 +770,23 @@ ChordType get_chord_type(uint8_t (*current_chord)[7]) {
 // Debug chord information
 void debug_chord_info(uint8_t scalar_harp_selection, uint8_t harp_shuffling_selection,
                      uint8_t root_note, uint8_t (*current_chord)[7]) {
-  Serial.print("scalar_harp_selection="); Serial.println(scalar_harp_selection);
-  Serial.print("harp_shuffling_selection="); Serial.println(harp_shuffling_selection);
-  Serial.print("root_note="); Serial.print(root_note);
-  Serial.print(", current_chord=");
+  DEBUG_PRINT("scalar_harp_selection="); DEBUG_PRINTLN(scalar_harp_selection);
+  DEBUG_PRINT("harp_shuffling_selection="); DEBUG_PRINTLN(harp_shuffling_selection);
+  DEBUG_PRINT("root_note="); DEBUG_PRINT(root_note);
+  DEBUG_PRINT(", current_chord=");
   
   switch (get_chord_type(current_chord)) {
-    case CHORD_MAJOR: Serial.println("Major"); break;
-    case CHORD_MINOR: Serial.println("Minor"); break;
-    case CHORD_SEVENTH: Serial.println("Seventh"); break;
-    case CHORD_MAJ_SEVENTH: Serial.println("Maj Seventh"); break;
-    case CHORD_MIN_SEVENTH: Serial.println("Min Seventh"); break;
-    case CHORD_DIM: Serial.println("Dim"); break;
-    case CHORD_AUG: Serial.println("Aug"); break;
-    case CHORD_MAJ_SIXTH: Serial.println("Maj Sixth"); break;
-    case CHORD_MIN_SIXTH: Serial.println("Min Sixth"); break;
-    case CHORD_FULL_DIM: Serial.println("Full Dim"); break;
-    default: Serial.println("Unknown"); break;
+    case CHORD_MAJOR: DEBUG_PRINTLN("Major"); break;
+    case CHORD_MINOR: DEBUG_PRINTLN("Minor"); break;
+    case CHORD_SEVENTH: DEBUG_PRINTLN("Seventh"); break;
+    case CHORD_MAJ_SEVENTH: DEBUG_PRINTLN("Maj Seventh"); break;
+    case CHORD_MIN_SEVENTH: DEBUG_PRINTLN("Min Seventh"); break;
+    case CHORD_DIM: DEBUG_PRINTLN("Dim"); break;
+    case CHORD_AUG: DEBUG_PRINTLN("Aug"); break;
+    case CHORD_MAJ_SIXTH: DEBUG_PRINTLN("Maj Sixth"); break;
+    case CHORD_MIN_SIXTH: DEBUG_PRINTLN("Min Sixth"); break;
+    case CHORD_FULL_DIM: DEBUG_PRINTLN("Full Dim"); break;
+    default: DEBUG_PRINTLN("Unknown"); break;
   }
 }
 
@@ -795,7 +801,7 @@ uint8_t calculate_chord_tones_note(uint8_t string, uint8_t root_note, int8_t sha
   } else {
     note = (12 * (level / 10) + root_note + sharp_offset + (*current_chord)[level % 10]);
   }
-  Serial.printf("Chord tones mode, string %d, level=%d, note=%d\n", string, level, note);
+  DEBUG_PRINTF("Chord tones mode, string %d, level=%d, note=%d\n", string, level, note);
   return note;
 }
 
@@ -815,13 +821,13 @@ uint8_t calculate_static_scale_note(uint8_t string, uint8_t scalar_harp_selectio
   
   uint8_t note = scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12);
   
-  Serial.print("Scale mode "); Serial.print(scalar_harp_selection);
-  Serial.print(", scale_length="); Serial.print(scale_length);
-  Serial.print(", scale_intervals: ");
+  DEBUG_PRINT("Scale mode "); DEBUG_PRINT(scalar_harp_selection);
+  DEBUG_PRINT(", scale_length="); DEBUG_PRINT(scale_length);
+  DEBUG_PRINT(", scale_intervals: ");
   for (uint8_t i = 0; i < scale_length; i++) {
-    Serial.print(scale_intervals[scale_index][i]); Serial.print(" ");
+    DEBUG_PRINT(scale_intervals[scale_index][i]); DEBUG_PRINT(" ");
   }
-  Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
+  DEBUG_PRINTF("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
                 string, scale_degree, octave, scale_intervals[scale_index][scale_degree], note + 12);
   return note + 12;
 }
@@ -850,7 +856,7 @@ uint8_t get_chord_scale_index(ChordType chord_type, bool use_pentatonic, bool ba
     case CHORD_FULL_DIM:
       return 9; // Offset Diminished 6th
     default:
-      Serial.println("Warning: Unknown current_chord, defaulting to major scale");
+      DEBUG_PRINTLN("Warning: Unknown current_chord, defaulting to major scale");
       return use_pentatonic ? 0 : 10; // Default to Major Pentatonic or Ionian
   }
 }
@@ -866,14 +872,14 @@ uint8_t calculate_chord_specific_note(uint8_t string, uint8_t scalar_harp_select
   uint8_t scale_degree = string % scale_length;
   uint8_t note = root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * 12);
   
-  Serial.print("Chord-specific scale mode "); Serial.print(scalar_harp_selection);
-  Serial.print(", scale_index="); Serial.print(scale_index);
-  Serial.print(", scale_length="); Serial.print(scale_length);
-  Serial.print(", scale_intervals: ");
+  DEBUG_PRINT("Chord-specific scale mode "); DEBUG_PRINT(scalar_harp_selection);
+  DEBUG_PRINT(", scale_index="); DEBUG_PRINT(scale_index);
+  DEBUG_PRINT(", scale_length="); DEBUG_PRINT(scale_length);
+  DEBUG_PRINT(", scale_intervals: ");
   for (uint8_t i = 0; i < scale_length; i++) {
-    Serial.print(chord_scale_intervals[scale_index][i]); Serial.print(" ");
+    DEBUG_PRINT(chord_scale_intervals[scale_index][i]); DEBUG_PRINT(" ");
   }
-  Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
+  DEBUG_PRINTF("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
                 string, scale_degree, octave, chord_scale_intervals[scale_index][scale_degree], note);
   return note;
 }
@@ -881,7 +887,7 @@ uint8_t calculate_chord_specific_note(uint8_t string, uint8_t scalar_harp_select
 // Calculate note in chromatic mode
 uint8_t calculate_chromatic_note(uint8_t string) {
   uint8_t note = string + 24;
-  Serial.printf("Chromatic mode, string %d, note=%d\n", string, note);
+  DEBUG_PRINTF("Chromatic mode, string %d, note=%d\n", string, note);
   return note;
 }
 
@@ -897,7 +903,7 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
   
   // Prioritize chromatic mode
   if (chromatic_harp_mode) {
-    Serial.println("Chromatic mode active");
+    DEBUG_PRINTLN("Chromatic mode active");
     return calculate_chromatic_note(string);
   }
   
@@ -910,7 +916,7 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
     return calculate_chord_specific_note(string, scalar_harp_selection, root_note, 
                                        sharp_offset, current_chord, barry_harris_mode);
   } else {
-    Serial.printf("Invalid scalar_harp_selection=%d, defaulting to chord tones mode\n", 
+    DEBUG_PRINTF("Invalid scalar_harp_selection=%d, defaulting to chord tones mode\n", 
                   scalar_harp_selection);
     return calculate_chord_tones_note(string, root_note, sharp_offset, slashed, 
                                     note_slash_level, current_chord, harp_shuffling_selection);
@@ -1001,19 +1007,19 @@ void save_config(int bank_number, bool default_save) {
 
   if (default_save) {
     // if we need to put the default in memory
-    Serial.println("Writing the default file");
-    Serial.println(bank_name[bank_number]);
+    DEBUG_PRINTLN("Writing the default file");
+    DEBUG_PRINTLN(bank_name[bank_number]);
     String return_data = serialize(default_bank_sysex_parameters[bank_number], parameter_size);
     dataFile.println(return_data);
   } else {
-    Serial.println("Saving current settings");
+    DEBUG_PRINTLN("Saving current settings");
     for (u_int16_t i = 0; i < parameter_size; i++) {
-          Serial.println(current_sysex_parameters[i]);
+          DEBUG_PRINTLN(current_sysex_parameters[i]);
     }
     dataFile.println(serialize(current_sysex_parameters, parameter_size));
   }
-  Serial.print("Saved preset: ");
-  Serial.println(dataFile.name());
+  DEBUG_PRINT("Saved preset: ");
+  DEBUG_PRINTLN(dataFile.name());
   dataFile.close();
 
   load_config(current_bank_number); //we do a full reload to initialise values
@@ -1041,19 +1047,19 @@ void load_config(int bank_number) {
       data_string += char(entry.read());
     }
     deserialize(data_string, current_sysex_parameters);
-    Serial.print("Loaded preset: ");
-    Serial.println(entry.name());
+    DEBUG_PRINT("Loaded preset: ");
+    DEBUG_PRINTLN(entry.name());
     entry.close();
   } else {
     entry.close();
-    Serial.print("No preset, writing factory default");
+    DEBUG_PRINT("No preset, writing factory default");
     save_config(bank_number, true); // reboot with default value
   }
   // Loading the potentiometer
   chord_pot.setup(chord_volume_sysex, 100, current_sysex_parameters[chord_pot_alternate_control], current_sysex_parameters[chord_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[chord_pot_alternate_storage],apply_audio_parameter,chord_pot_alternate_storage);
   harp_pot.setup(harp_volume_sysex, 100, current_sysex_parameters[harp_pot_alternate_control], current_sysex_parameters[harp_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[harp_pot_alternate_storage],apply_audio_parameter,harp_pot_alternate_storage);
   mod_pot.setup(current_sysex_parameters[mod_pot_main_control], current_sysex_parameters[mod_pot_main_range], current_sysex_parameters[mod_pot_alternate_control], current_sysex_parameters[mod_pot_alternate_range], current_sysex_parameters,current_sysex_parameters[mod_pot_alternate_storage],apply_audio_parameter,mod_pot_alternate_storage);
-  Serial.println("pot setup done");
+  DEBUG_PRINTLN("pot setup done");
   for (int i = 1; i < parameter_size; i++) {
     apply_audio_parameter(i, current_sysex_parameters[i]);
   }
@@ -1067,7 +1073,7 @@ void load_config(int bank_number) {
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("Initialising audio parameters");
+  DEBUG_PRINTLN("Initialising audio parameters");
   AudioMemory(1200);
   //>>STATIC AUDIO PARAMETERS
   // the waveshaper
@@ -1121,14 +1127,14 @@ void setup() {
     analogWrite(RYTHM_LED_PIN, 255);
   }
   // loading the preset
-  Serial.println("Initialising filesystem");
+  DEBUG_PRINTLN("Initialising filesystem");
   if (!myfs.begin(1024 * 1024)) { // Need to check that size
-    Serial.printf("Error starting %s\n", "Program flash DISK");
+    DEBUG_PRINTF("Error starting %s\n", "Program flash DISK");
     while (1) {
       set_led_color(0, 1.0, 1.0); // turn red light
     }
   }
-  Serial.println("Loading the preset");
+  DEBUG_PRINTLN("Loading the preset");
   load_config(current_bank_number);
   // initializing the strings
   for (int i = 0; i < 12; i++) {
@@ -1142,7 +1148,7 @@ void setup() {
   }
 
 
-  Serial.println("Initialisation complete");
+  DEBUG_PRINTLN("Initialisation complete");
   digitalWrite(_MUTE_PIN, HIGH);
 }
 
@@ -1157,8 +1163,8 @@ void handleChordButtons() {
     int value = chord_matrix_array[i].read_transition();
     if (value > 1 && !inhibit_button) {
       button_pushed = true;
-      Serial.print("Button pushed: ");
-      Serial.println(i);
+      DEBUG_PRINT("Button pushed: ");
+      DEBUG_PRINTLN(i);
       if (current_line == -1) {
         current_line = (i - 1) / 3;
         if (!continuous_chord) {
@@ -1241,7 +1247,7 @@ void updateChordNotes() {
     current_chord_notes[i] = calculate_note_chord(i, slash_chord, sharp_active);
   }
   if (button_pushed) {
-    Serial.println("Updating frequencies");
+    DEBUG_PRINTLN("Updating frequencies");
     if (!rythm_mode && !trigger_chord && !retrigger_chord) {
       for (int i = 0; i < 4; i++) {
         set_chord_voice_frequency(i, current_chord_notes[i]);
@@ -1326,7 +1332,7 @@ void handleHoldButton() {
   uint8_t hold_transition = hold_button.read_transition();
   if (hold_transition == 2) {
     if (!rythm_mode) {
-      Serial.println("Switching mode");
+      DEBUG_PRINTLN("Switching mode");
       continuous_chord = !continuous_chord;
       analogWrite(RYTHM_LED_PIN, 255 * continuous_chord);
       if (current_line == -1) {
@@ -1335,28 +1341,28 @@ void handleHoldButton() {
     } else {
       if (since_last_button_push > 100 && since_last_button_push < 2000) {
         rythm_bpm = (rythm_bpm * 5.0 + 60 * 1000 / since_last_button_push) / 6.0;
-        Serial.print("Updating the BPM to: ");
-        Serial.println(rythm_bpm);
+        DEBUG_PRINT("Updating the BPM to: ");
+        DEBUG_PRINTLN(rythm_bpm);
         recalculate_timer();
         rythm_timer.update(current_long_period ? long_timer_period : short_timer_period);
       }
     }
     since_last_button_push = 0;
   } else if (hold_transition == 1 && since_last_button_push > 800) {
-    Serial.println("Long push, switching rhythm mode");
+    DEBUG_PRINTLN("Long push, switching rhythm mode");
     rythm_mode = !rythm_mode;
     continuous_chord = false;
     analogWrite(RYTHM_LED_PIN, 255 * continuous_chord);
     if (rythm_mode) {
       rythm_current_step = 0;
-      Serial.println("Starting rhythm timers");
+      DEBUG_PRINTLN("Starting rhythm timers");
       rythm_timer.priority(254);
       rythm_timer.begin(rythm_tick_function, short_timer_period);
       rythm_timer_running = true;
       rythm_timer.update(long_timer_period);
       current_long_period = true;
     } else {
-      Serial.println("Stopping rhythm timers");
+      DEBUG_PRINTLN("Stopping rhythm timers");
       rythm_timer.end();
       rythm_timer_running = false;
     }
@@ -1368,7 +1374,7 @@ void handlePresetChange(uint8_t up_transition, uint8_t down_transition, bool up_
   if (key_change_mode || preset_inhibit || (up_state && down_state)) {
     if (up_transition > 1 || down_transition > 1) {
       if (key_change_timer >= LOG_THROTTLE) {
-        Serial.printf("Preset change inhibited: key_change_mode=%d, preset_inhibit=%d, both_held=%d\n",
+        DEBUG_PRINTF("Preset change inhibited: key_change_mode=%d, preset_inhibit=%d, both_held=%d\n",
                       key_change_mode, preset_inhibit, up_state && down_state);
         key_change_timer = 0; // Reset timer to extend inhibition
       }
@@ -1379,7 +1385,7 @@ void handlePresetChange(uint8_t up_transition, uint8_t down_transition, bool up_
   // Handle Up button press for next preset
   if (up_transition == 2 && !down_state && !key_change_mode && !preset_inhibit) {
     if (key_change_timer >= LOG_THROTTLE) {
-      Serial.println("Switching to next preset");
+      DEBUG_PRINTLN("Switching to next preset");
       key_change_timer = 0;
     }
     if (!sysex_controler_connected && flag_save_needed) {
@@ -1393,7 +1399,7 @@ void handlePresetChange(uint8_t up_transition, uint8_t down_transition, bool up_
   // Handle Down button press for previous preset
   if (down_transition == 2 && !up_state && !key_change_mode && !preset_inhibit) {
     if (key_change_timer >= LOG_THROTTLE) {
-      Serial.println("Switching to previous preset");
+      DEBUG_PRINTLN("Switching to previous preset");
       key_change_timer = 0;
     }
     if (!sysex_controler_connected && flag_save_needed) {
@@ -1424,7 +1430,7 @@ void handleLowBattery() {
 
 void triggerChordNotes() {
   if ((trigger_chord || (button_pushed && retrigger_chord)) && !rythm_mode) {
-    Serial.println("Triggering chord notes");
+    DEBUG_PRINTLN("Triggering chord notes");
     for (int i = 0; i < 4; i++) {
       note_timer[i].priority(253);
       note_timer[i].begin([i] { play_single_note(i, &note_timer[i]); }, 
@@ -1495,21 +1501,21 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
   if (up_transition == 2) {
     up_pressed = true;
     up_press_time = 0;
-    Serial.println("Up button pressed");
+    DEBUG_PRINTLN("Up button pressed");
   }
   if (down_transition == 2) {
     down_pressed = true;
     down_press_time = 0;
-    Serial.println("Down button pressed");
+    DEBUG_PRINTLN("Down button pressed");
   }
   if (up_transition == 1) {
     up_pressed = false;
-    Serial.println("Up button released");
+    DEBUG_PRINTLN("Up button released");
     key_change_timer = 0;
   }
   if (down_transition == 1) {
     down_pressed = false;
-    Serial.println("Down button released");
+    DEBUG_PRINTLN("Down button released");
     key_change_timer = 0;
   }
 
@@ -1524,7 +1530,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
     selected_key_name = "";
     color_led_blink_timer.begin(pulse_key_change_led, 100000);
     if (!logged_mode) {
-      Serial.println("Entered key change mode");
+      DEBUG_PRINTLN("Entered key change mode");
       logged_mode = true;
     }
   }
@@ -1579,7 +1585,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
           }
         }
         if (key_change_timer >= LOG_THROTTLE) {
-          Serial.printf("Chord button %d pressed: Key signature %s (value=%d)\n", 
+          DEBUG_PRINTF("Chord button %d pressed: Key signature %s (value=%d)\n", 
                        i, selected_key_name, selected_key);
           key_change_timer = 0;
         }
@@ -1599,7 +1605,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
       key_flash_timer.priority(255);
       key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 200000); // 200ms flash
       if (key_change_timer >= LOG_THROTTLE) {
-        Serial.printf("Key signature changed to %s (value=%d, hue=%.2f)\n", 
+        DEBUG_PRINTF("Key signature changed to %s (value=%d, hue=%.2f)\n", 
                      selected_key_name, selected_key, key_hues[selected_key]);
         key_change_timer = 0;
       }
@@ -1624,7 +1630,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
       key_change_timer = 0;
       chord_pressed = false;
       if (key_change_timer >= LOG_THROTTLE) {
-        Serial.println("Exited key change mode after UP+DOWN release");
+        DEBUG_PRINTLN("Exited key change mode after UP+DOWN release");
         logged_mode = true;
       }
     }
@@ -1639,7 +1645,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
     preset_inhibit = true;
     key_change_timer = 0;
     chord_pressed = false;
-    Serial.println("Key change mode timed out");
+    DEBUG_PRINTLN("Key change mode timed out");
     logged_mode = true;
   }
 
@@ -1648,7 +1654,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
       !(up_state && down_state)) {
     preset_inhibit = false;
     if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
-      Serial.println("Preset inhibition cleared");
+      DEBUG_PRINTLN("Preset inhibition cleared");
       logged_mode = true;
     }
   }
