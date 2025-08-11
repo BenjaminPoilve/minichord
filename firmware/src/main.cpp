@@ -45,10 +45,10 @@ uint8_t aug[7] = {0, 4, 8, 12, 2, 5, 9};
 uint8_t dim[7] = {0, 3, 6, 12, 2, 5, 9};
 uint8_t full_dim[7] = {0, 3, 6, 9, 2, 5, 12};
 uint8_t key_signature_selection = 0; // 0=C, 1=G, 2=D, 3=A, 4=E, 5=B, 6=F, 7=Bb, 8=Eb, 9=Ab, 10=Db, 11=Gb
-enum KeySig { // Enums for KeySigs
+/* enum KeySig { // Enums for KeySigs
   KEY_SIG_C, KEY_SIG_G, KEY_SIG_D, KEY_SIG_A, KEY_SIG_E, KEY_SIG_B,
   KEY_SIG_F, KEY_SIG_Bb, KEY_SIG_Eb, KEY_SIG_Ab, KEY_SIG_Db, KEY_SIG_Gb
-};
+}; */
 enum Button { // Button enum in hardware order: B, E, A, D, G, C, F
   BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F
 };
@@ -56,25 +56,72 @@ enum FrameShift { //Enums for chord frame shifts
   FRAMESHIFT_0, FRAMESHIFT_1,FRAMESHIFT_2,FRAMESHIFT_3,FRAMESHIFT_4,FRAMESHIFT_5,FRAMESHIFT_6
 };
 const int8_t base_notes[7] = {11, 4, 9, 2, 7, 0, 5}; // Base note offsets for buttons in key of C (relative to C4 = MIDI 60), in hardware order B, E, A, D, G, C, F
-const int8_t key_offsets[12] = {0, 7, 2, 9, 4, 11, 5, 10, 3, 8, 1, 6}; // Circle of fifths: semitone offset for each key’s root note relative to C: C, G, D, A, E, B, F, Bb, Eb, Ab, Db, Gb
-const int8_t key_signatures[12] = {0, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 6}; // Number of sharps or flats for each key: Sharps for C, G, D, A, E, B; flats for F, Bb, Eb, Ab, Db, Gb
-const int8_t sharp_notes[6][6] = { // Notes affected by sharps in each key, in hardware order (B, E, A, D, G, C, F)
-  {BTN_F},          // 1 sharp: F#
-  {BTN_F, BTN_C},   // 2 sharps: F#, C#
-  {BTN_F, BTN_C, BTN_G}, // 3 sharps: F#, C#, G#
-  {BTN_F, BTN_C, BTN_G, BTN_D}, // 4 sharps: F#, C#, G#, D#
-  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A}, // 5 sharps: F#, C#, G#, D#, A#
-  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E} // 6 sharps: F#, C#, G#, D#, A#, E#
-};
-const int8_t flat_notes[6][6] = { // Notes affected by flats in each key, in hardware order (B, E, A, D, G, C, F)
-  {BTN_B},          // 1 flat: Bb
-  {BTN_B, BTN_E},   // 2 flats: Bb, Eb
-  {BTN_B, BTN_E, BTN_A}, // 3 flats: Bb, Eb, Ab
-  {BTN_B, BTN_E, BTN_A, BTN_D}, // 4 flats: Bb, Eb, Ab, Db
-  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G}, // 5 flats: Bb, Eb, Ab, Db, Gb
-  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C} // 6 flats: Bb, Eb, Ab, Db, Gb, Cb
+//>>KEY CHANGE MODE VARIABLES<<
+bool key_change_mode = false; // Flag for key change mode
+elapsedMillis key_change_timer; // Timer for key change mode timeout and logging
+bool preset_inhibit = false; // Flag to inhibit preset changes
+const uint32_t KEY_CHANGE_TIMEOUT = 5000; // 5-second timeout for key change mode
+const uint32_t SIMULTANEOUS_WINDOW = 100; // 100ms window for Up+Down simultaneous press
+const uint32_t PRESET_INHIBIT_DELAY = 200; // 200ms preset inhibition after key change mode
+const uint32_t LOG_THROTTLE = 500; // 500ms throttle for logs
+
+// Expanded KeySig enum
+enum KeySig {
+  KEY_SIG_C, KEY_SIG_G, KEY_SIG_D, KEY_SIG_A, KEY_SIG_E, KEY_SIG_B, KEY_SIG_F,
+  KEY_SIG_Bb, KEY_SIG_Eb, KEY_SIG_Ab, KEY_SIG_Db, KEY_SIG_Gb,
+  KEY_SIG_Fs, KEY_SIG_Cs, KEY_SIG_Gs, KEY_SIG_Ds, KEY_SIG_As, KEY_SIG_Es, KEY_SIG_Bs,
+  KEY_SIG_Fb, KEY_SIG_Cb
 };
 
+// Updated key signature arrays (unchanged from previous response)
+const int8_t key_offsets[21] = {
+  0, 7, 2, 9, 4, 11, 5, // C, G, D, A, E, B, F
+  10, 3, 8, 1, 6, // Bb, Eb, Ab, Db, Gb
+  6, 1, 8, 3, 10, 5, 0, // F#=Gb, C#=Db, G#=Ab, D#=Eb, A#=Bb, E#=F, B#=C
+  4, 11 // Fb=E, Cb=B
+};
+
+const int8_t key_signatures[21] = {
+  0, 1, 2, 3, 4, 5, 1, // C, G, D, A, E, B, F
+  2, 3, 4, 5, 6, // Bb, Eb, Ab, Db, Gb
+  6, 7, 5, 6, 7, 6, 7, // F#=Gb, C# (7 sharps), G#=Ab, D#=Eb, A#=Bb, E#=F, B# (7 sharps)
+  6, 6 // Fb (6 flats), Cb (6 flats)
+};
+
+const int8_t sharp_notes[7][7] = {
+  {BTN_F, -1, -1, -1, -1, -1, -1}, // 1 sharp: F#
+  {BTN_F, BTN_C, -1, -1, -1, -1, -1}, // 2 sharps: F#, C#
+  {BTN_F, BTN_C, BTN_G, -1, -1, -1, -1}, // 3 sharps: F#, C#, G#
+  {BTN_F, BTN_C, BTN_G, BTN_D, -1, -1, -1}, // 4 sharps: F#, C#, G#, D#
+  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, -1, -1}, // 5 sharps: F#, C#, G#, D#, A#
+  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E, -1}, // 6 sharps: F#, C#, G#, D#, A#, E#
+  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E, BTN_B} // 7 sharps: F#, C#, G#, D#, A#, E#, B#
+};
+
+const int8_t flat_notes[7][7] = {
+  {BTN_B, -1, -1, -1, -1, -1, -1}, // 1 flat: Bb
+  {BTN_B, BTN_E, -1, -1, -1, -1, -1}, // 2 flats: Bb, Eb
+  {BTN_B, BTN_E, BTN_A, -1, -1, -1, -1}, // 3 flats: Bb, Eb, Ab
+  {BTN_B, BTN_E, BTN_A, BTN_D, -1, -1, -1}, // 4 flats: Bb, Eb, Ab, Db
+  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, -1, -1}, // 5 flats: Bb, Eb, Ab, Db, Gb
+  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, -1}, // 6 flats: Bb, Eb, Ab, Db, Gb, Cb
+  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F} // 7 flats: Bb, Eb, Ab, Db, Gb, Cb, Fb
+};
+
+// Double-sharp notes for G#, D#, A#, E#, B#
+const int8_t double_sharp_notes[5][6] = {
+  {BTN_F, BTN_C, -1, -1, -1, -1}, // G#: F##, C##
+  {BTN_F, BTN_C, BTN_G, -1, -1, -1}, // D#: F##, C##, G##
+  {BTN_F, BTN_C, BTN_G, BTN_D, -1, -1}, // A#: F##, C##, G##, D##
+  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, -1}, // E#: F##, C##, G##, D##, A##
+  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E} // B#: F##, C##, G##, D##, A##, E##
+};
+
+// Double-flat notes for Fb (Bbb), Cb (no double-flats)
+const int8_t double_flat_notes[2][1] = {
+  {BTN_B}, // Fb: Bbb
+  {-1}     // Cb: No double-flats
+};
 uint8_t scalar_harp_selection = 0; // Selected mode: 0=Chord-based (default), 1=Major, 2=Major Pentatonic, 3=Minor Pentatonic, 4=Diminished 6th Scale, 5=Relative Natural Minor, 6=Relative Harmonic Minor, 7=Relative Minor Pentatonic
 // Scale intervals (semitones from root note), indexed from 1
 const uint8_t scale_intervals[8][8] = {
@@ -562,39 +609,76 @@ void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
 }
 // Function to compute MIDI note offset dynamically with circular frame shift
 int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) { 
-  int8_t note = base_notes[button]; // Start with base note in C (e.g., B = 11, E = 4, ..., F = 5)
-  // Apply circular frame shift: move notes C, D, E, F, G, A, B up an octave based on shift
-  // Map button to musical note index (C=0, D=1, E=2, F=3, G=4, A=5, B=6)
+  int8_t note = base_notes[button]; // Start with base note in C (e.g., B=11, E=4, ..., F=5)
+  // Apply circular frame shift
   int8_t musical_index;
   switch (button) {
-    case BTN_B: musical_index = 6; break; // B
-    case BTN_E: musical_index = 2; break; // E
-    case BTN_A: musical_index = 5; break; // A
-    case BTN_D: musical_index = 1; break; // D
-    case BTN_G: musical_index = 4; break; // G
-    case BTN_C: musical_index = 0; break; // C
-    case BTN_F: musical_index = 3; break; // F
-    default: musical_index = 0; // Should not happen
+    case BTN_B: musical_index = 6; break;
+    case BTN_E: musical_index = 2; break;
+    case BTN_A: musical_index = 5; break;
+    case BTN_D: musical_index = 1; break;
+    case BTN_G: musical_index = 4; break;
+    case BTN_C: musical_index = 0; break;
+    case BTN_F: musical_index = 3; break;
+    default: musical_index = 0;
   }
   if (musical_index < shift) {
-    note += 12; // Move up one octave if the note is shifted "on top"
+    note += 12; // Move up one octave if note is shifted
   }
-  int8_t num_accidentals = key_signatures[key];   // Apply key signature (sharps or flats)
-  if (key <= KEY_SIG_B) { // Sharp keys (C, G, D, A, E, B)
-    for (int i = 0; i < num_accidentals; i++) {
+  int8_t num_accidentals = key_signatures[key];
+  // Apply single sharps/flats
+  if (key <= KEY_SIG_B || (key >= KEY_SIG_Fs && key <= KEY_SIG_Es)) { // Sharp keys (C, G, D, A, E, B, F#, C#, G#, D#, A#, E#)
+    for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
       if (button == sharp_notes[num_accidentals - 1][i]) {
         note += 1; // Add sharp
       }
     }
-  } else { // Flat keys (F, Bb, Eb, Ab, Db, Gb)
-    for (int i = 0; i < num_accidentals; i++) {
+  } else if (key == KEY_SIG_Bs || key == KEY_SIG_Cs || key == KEY_SIG_Gs || key == KEY_SIG_Ds || key == KEY_SIG_As || key == KEY_SIG_Es) { // Keys with double-sharps
+    for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
+      if (button == sharp_notes[num_accidentals - 1][i]) {
+        note += 1; // Add sharp
+      }
+    }
+    // Apply double-sharps
+    int double_sharp_index;
+    if (key == KEY_SIG_Gs) double_sharp_index = 0; // G#: F##, C##
+    else if (key == KEY_SIG_Ds) double_sharp_index = 1; // D#: F##, C##, G##
+    else if (key == KEY_SIG_As) double_sharp_index = 2; // A#: F##, C##, G##, D##
+    else if (key == KEY_SIG_Es) double_sharp_index = 3; // E#: F##, C##, G##, D##, A##
+    else if (key == KEY_SIG_Bs || key == KEY_SIG_Cs) double_sharp_index = 4; // B#, C#: F##, C##, G##, D##, A##, E##
+    else double_sharp_index = -1;
+    if (double_sharp_index >= 0) {
+      for (int i = 0; i < 6 && double_sharp_notes[double_sharp_index][i] != -1; i++) {
+        if (button == double_sharp_notes[double_sharp_index][i]) {
+          note += 1; // Add double-sharp
+          if (key_change_timer >= LOG_THROTTLE) {
+            Serial.printf("Applied double-sharp to button %d in key %d\n", button, key);
+            key_change_timer = 0;
+          }
+        }
+      }
+    }
+  } else { // Flat keys (F, Bb, Eb, Ab, Db, Gb, Fb, Cb)
+    for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
       if (button == flat_notes[num_accidentals - 1][i]) {
         note -= 1; // Add flat
       }
     }
+    // Apply double-flats for Fb
+    if (key == KEY_SIG_Fb) {
+      int double_flat_index = 0; // Fb: Bbb
+      for (int i = 0; i < 1 && double_flat_notes[double_flat_index][i] != -1; i++) {
+        if (button == double_flat_notes[double_flat_index][i]) {
+          note -= 1; // Add double-flat (Bbb)
+          if (key_change_timer >= LOG_THROTTLE) {
+            Serial.printf("Applied double-flat to button %d in key %d\n", button, key);
+            key_change_timer = 0;
+          }
+        }
+      }
+    }
   }
-
-  return note; //No need to constrain here
+  return note;
 }
 // function to calculate the frequency of individual chord notes
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
@@ -1279,25 +1363,48 @@ void handleHoldButton() {
   }
 }
 
-void handlePresetChange() {
-  if (up_button.read_transition() > 1) {
-    Serial.println("Switching to next preset");
+void handlePresetChange(uint8_t up_transition, uint8_t down_transition, bool up_state, bool down_state) {
+  // Inhibit preset changes if key_change_mode is active, preset_inhibit is true, or both buttons are held
+  if (key_change_mode || preset_inhibit || (up_state && down_state)) {
+    if (up_transition > 1 || down_transition > 1) {
+      if (key_change_timer >= LOG_THROTTLE) {
+        Serial.printf("Preset change inhibited: key_change_mode=%d, preset_inhibit=%d, both_held=%d\n",
+                      key_change_mode, preset_inhibit, up_state && down_state);
+        key_change_timer = 0; // Reset timer to extend inhibition
+      }
+    }
+    return;
+  }
+
+  // Handle Up button press for next preset
+  if (up_transition == 2 && !down_state && !key_change_mode && !preset_inhibit) {
+    if (key_change_timer >= LOG_THROTTLE) {
+      Serial.println("Switching to next preset");
+      key_change_timer = 0;
+    }
     if (!sysex_controler_connected && flag_save_needed) {
       save_config(current_bank_number, false);
     }
     current_bank_number = (current_bank_number + 1) % 12;
     load_config(current_bank_number);
+    set_led_color(bank_led_hue, 1.0, 1 - led_attenuation); // Update LED to reflect new bank
   }
-  if (down_button.read_transition() > 1) {
-    Serial.println("Switching to last preset");
+
+  // Handle Down button press for previous preset
+  if (down_transition == 2 && !up_state && !key_change_mode && !preset_inhibit) {
+    if (key_change_timer >= LOG_THROTTLE) {
+      Serial.println("Switching to previous preset");
+      key_change_timer = 0;
+    }
     if (!sysex_controler_connected && flag_save_needed) {
       save_config(current_bank_number, false);
     }
     current_bank_number = (current_bank_number - 1);
-    if (current_bank_number == -1) {
+    if (current_bank_number < 0) {
       current_bank_number = 11;
     }
     load_config(current_bank_number);
+    set_led_color(bank_led_hue, 1.0, 1 - led_attenuation); // Update LED to reflect new bank
   }
 }
 
@@ -1328,6 +1435,180 @@ void triggerChordNotes() {
   button_pushed = false;
 }
 
+void pulse_key_change_led() {
+  static bool led_on = false;
+  led_on = !led_on; // Toggle state
+  if (led_on) {
+    set_led_color(0, 1.0, 1.0); // Red (hue = 0), full saturation, full brightness
+  } else {
+    set_led_color(0, 1.0, 0.2); // Red, full saturation, dim (20% brightness)
+  }
+}
+
+void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up_state, bool down_state) {
+  static bool up_pressed = false, down_pressed = false;
+  static elapsedMillis up_press_time, down_press_time;
+  static bool logged_mode = false;
+  static bool chord_pressed = false; // Track if a chord button was pressed
+
+  // Handle Up/Down button presses
+  if (up_transition == 2) {
+    up_pressed = true;
+    up_press_time = 0;
+  }
+  if (down_transition == 2) {
+    down_pressed = true;
+    down_press_time = 0;
+  }
+  if (up_transition == 1) {
+    up_pressed = false;
+    key_change_timer = 0; // Reset timer on release to extend preset_inhibit
+  }
+  if (down_transition == 1) {
+    down_pressed = false;
+    key_change_timer = 0; // Reset timer on release to extend preset_inhibit
+  }
+
+  // Inhibit preset changes while both buttons are held
+  if (up_state && down_state) {
+    preset_inhibit = true;
+  }
+
+  // Enter key change mode if both buttons are pressed within 100ms
+  if (!key_change_mode && (up_pressed || down_pressed)) {
+    if (up_pressed && down_pressed && up_press_time < SIMULTANEOUS_WINDOW && down_press_time < SIMULTANEOUS_WINDOW) {
+      key_change_mode = true;
+      preset_inhibit = true;
+      key_change_timer = 0;
+      chord_pressed = false; // Reset chord press state
+      color_led_blink_timer.begin(pulse_key_change_led, 100000); // Start pulsing blue LED
+      if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
+        Serial.println("Entered key change mode");
+        logged_mode = true;
+      }
+    } else if ((up_pressed && down_press_time < SIMULTANEOUS_WINDOW) ||
+               (down_pressed && up_press_time < SIMULTANEOUS_WINDOW)) {
+      preset_inhibit = true; // Inhibit presets during window
+    }
+  }
+
+  // Exit key change mode if both Up/Down buttons are released or timeout occurs
+  if (key_change_mode && (!up_state && !down_state) && !chord_pressed) {
+    key_change_mode = false;
+    color_led_blink_timer.end();
+    set_led_color(bank_led_hue, 1.0, 1 - led_attenuation); // Restore bank color
+    preset_inhibit = true;
+    key_change_timer = 0;
+    if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
+      Serial.println("Exited key change mode");
+      logged_mode = true;
+    }
+  } else if (key_change_mode && key_change_timer > KEY_CHANGE_TIMEOUT) {
+    key_change_mode = false;
+    color_led_blink_timer.end();
+    set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
+    preset_inhibit = true;
+    key_change_timer = 0;
+    Serial.println("Key change mode timed out");
+    logged_mode = true;
+  }
+
+  // Clear preset inhibition after delay
+  if (!key_change_mode && preset_inhibit && key_change_timer > PRESET_INHIBIT_DELAY && !(up_state && down_state)) {
+    preset_inhibit = false;
+    if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
+      Serial.println("Preset inhibition cleared");
+      logged_mode = true;
+    }
+  }
+
+  // Reset logging flag when mode changes
+  if (!key_change_mode && logged_mode && key_change_timer >= LOG_THROTTLE) {
+    logged_mode = false;
+  }
+
+  // Handle chord button presses in key change mode
+  if (key_change_mode) {
+    bool any_chord_pressed = false;
+    int selected_key = -1;
+    const char* selected_key_name = "";
+
+    for (int i = 1; i <= 21; i++) {
+      if (chord_matrix_array[i].read_transition() == 2) {
+        any_chord_pressed = true;
+        if (!chord_pressed) { // Only process the first valid press
+          chord_pressed = true;
+          int row = (i - 1) / 3; // Hardware row: 0=B, 1=E, 2=A, 3=D, 4=G, 5=C, 6=F
+          int user_row = 6 - row; // User row: 0=F, 1=C, 2=G, 3=D, 4=A, 5=E, 6=B
+          int col = (i - 1) % 3; // 0=sharp, 1=natural, 2=flat
+
+          if (col == 0) { // Top row: sharp keys (F#, C#, G#, D#, A#, E#, B#)
+            switch (user_row) {
+              case 0: selected_key = KEY_SIG_Fs; selected_key_name = "F#"; break;
+              case 1: selected_key = KEY_SIG_Cs; selected_key_name = "C#"; break;
+              case 2: selected_key = KEY_SIG_Gs; selected_key_name = "G#"; break;
+              case 3: selected_key = KEY_SIG_Ds; selected_key_name = "D#"; break;
+              case 4: selected_key = KEY_SIG_As; selected_key_name = "A#"; break;
+              case 5: selected_key = KEY_SIG_Es; selected_key_name = "E#"; break;
+              case 6: selected_key = KEY_SIG_Bs; selected_key_name = "B#"; break;
+            }
+          } else if (col == 1) { // Middle row: natural keys (F, C, G, D, A, E, B)
+            switch (user_row) {
+              case 0: selected_key = KEY_SIG_F; selected_key_name = "F"; break;
+              case 1: selected_key = KEY_SIG_C; selected_key_name = "C"; break;
+              case 2: selected_key = KEY_SIG_G; selected_key_name = "G"; break;
+              case 3: selected_key = KEY_SIG_D; selected_key_name = "D"; break;
+              case 4: selected_key = KEY_SIG_A; selected_key_name = "A"; break;
+              case 5: selected_key = KEY_SIG_E; selected_key_name = "E"; break;
+              case 6: selected_key = KEY_SIG_B; selected_key_name = "B"; break;
+            }
+          } else { // Bottom row: flat keys (Fb, Cb, Gb, Db, Ab, Eb, Bb)
+            switch (user_row) {
+              case 0: selected_key = KEY_SIG_Fb; selected_key_name = "Fb"; break;
+              case 1: selected_key = KEY_SIG_Cb; selected_key_name = "Cb"; break;
+              case 2: selected_key = KEY_SIG_Gb; selected_key_name = "Gb"; break;
+              case 3: selected_key = KEY_SIG_Db; selected_key_name = "Db"; break;
+              case 4: selected_key = KEY_SIG_Ab; selected_key_name = "Ab"; break;
+              case 5: selected_key = KEY_SIG_Eb; selected_key_name = "Eb"; break;
+              case 6: selected_key = KEY_SIG_Bb; selected_key_name = "Bb"; break;
+            }
+          }
+          if (key_change_timer >= LOG_THROTTLE) {
+            Serial.printf("Chord button %d pressed: Key signature %s (value=%d)\n", i, selected_key_name, selected_key);
+            key_change_timer = 0;
+          }
+        }
+      }
+    }
+
+    // Apply the selected key only if a valid press was detected
+    if (chord_pressed && selected_key != -1) {
+      key_signature_selection = selected_key;
+      current_sysex_parameters[35] = selected_key;
+      updateHarpNotes();
+      updateChordNotes();
+      if (key_change_timer >= LOG_THROTTLE) {
+        Serial.printf("Key signature changed to %s (value=%d)\n", selected_key_name, selected_key);
+        key_change_timer = 0;
+      }
+    }
+
+    // Exit key change mode only when all chord buttons are released
+    if (chord_pressed && !any_chord_pressed) {
+      key_change_mode = false;
+      color_led_blink_timer.end();
+      set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
+      preset_inhibit = true;
+      key_change_timer = 0;
+      chord_pressed = false;
+      if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
+        Serial.println("Exited key change mode after chord selection");
+        logged_mode = true;
+      }
+    }
+  }
+}
+
 void loop() {
   // Process incoming MIDI messages
   if (usbMIDI.read()) {
@@ -1346,14 +1627,23 @@ void loop() {
   LBO_flag.set(digitalRead(BATT_LBO_PIN));
   chord_matrix.update(chord_matrix_array);
 
+  // Read button states and transitions once
+  uint8_t up_transition = up_button.read_transition();
+  uint8_t down_transition = down_button.read_transition();
+  bool up_state = up_button.read_value();
+  bool down_state = down_button.read_value();
+
   // Handle low battery indicator
   handleLowBattery();
 
   // Handle hold button for mode switching and rhythm
   handleHoldButton();
 
+  // Handle key change mode (called first to set preset_inhibit if needed)
+  handleKeyChangeMode(up_transition, down_transition, up_state, down_state);
+
   // Handle preset changes
-  handlePresetChange();
+  handlePresetChange(up_transition, down_transition, up_state, down_state);
 
   // Handle rhythm mode note-off timing
   if (rythm_mode) {
