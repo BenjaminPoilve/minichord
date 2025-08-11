@@ -725,21 +725,24 @@ uint8_t calculate_static_scale_note(uint8_t string, uint8_t scalar_harp_selectio
   uint8_t scale_root = key_offsets[key_signature_selection];
   
   if (scalar_harp_selection >= 5 && scalar_harp_selection <= 7) {
-    scale_root = (scale_root - 3) % 12; // Relative minor adjustment
-    if (scale_root > 127) scale_root += 12;
+    // Relative minor: shift root down by 3 semitones (minor third)
+    scale_root = (scale_root + 12 - 3) % 12; // Ensure positive modulo
   }
   
   uint8_t note = scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12);
   
   Serial.print("Scale mode "); Serial.print(scalar_harp_selection);
+  Serial.print(", key_signature="); Serial.print(key_signature_selection);
+  Serial.print(", scale_root="); Serial.print(scale_root);
   Serial.print(", scale_length="); Serial.print(scale_length);
   Serial.print(", scale_intervals: ");
   for (uint8_t i = 0; i < scale_length; i++) {
     Serial.print(scale_intervals[scale_index][i]); Serial.print(" ");
   }
-  Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, note=%d\n",
-                string, scale_degree, octave, scale_intervals[scale_index][scale_degree], note + 12);
-  return note + 12;
+  Serial.printf("\nString %d: note_index=%d, octave=%d, interval=%d, root=%d, note=%d (MIDI=%d)\n",
+                string, scale_degree, octave, scale_intervals[scale_index][scale_degree], 
+                scale_root, note, note + midi_base_note);
+  return note;
 }
 
 // Calculate scale index for chord-specific mode
@@ -821,6 +824,7 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
     return calculate_chord_tones_note(string, root_note, sharp_offset, slashed, 
                                     note_slash_level, current_chord, harp_shuffling_selection);
   } else if (scalar_harp_selection >= 1 && scalar_harp_selection <= 7) {
+    // Use calculate_static_scale_note directly, ignoring chord-based root_note
     return calculate_static_scale_note(string, scalar_harp_selection, key_signature_selection);
   } else if (scalar_harp_selection == 8 || scalar_harp_selection == 9) {
     return calculate_chord_specific_note(string, scalar_harp_selection, root_note, 
