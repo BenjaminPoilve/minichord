@@ -821,8 +821,8 @@ uint8_t calculate_static_scale_note(uint8_t string, uint8_t scalar_harp_selectio
   uint8_t scale_root = key_offsets[key_signature_selection];
   
   if (scalar_harp_selection >= 5 && scalar_harp_selection <= 7) {
-    scale_root = (scale_root - 3) % 12; // Relative minor adjustment
-    if (scale_root > 127) scale_root += 12;
+    // Relative minor: shift root down by 3 semitones (minor third)
+    scale_root = (scale_root + 12 - 3) % 12; // Ensure positive modulo
   }
   
   uint8_t note = scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12);
@@ -919,9 +919,8 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
     DEBUG_PRINTF("Harp string %d: chord tones note=%d\n", string, note);
     return note;
   } else if (scalar_harp_selection >= 1 && scalar_harp_selection <= 7) {
-    uint8_t note = calculate_static_scale_note(string, scalar_harp_selection, key_signature_selection);
-    DEBUG_PRINTF("Harp string %d: static scale note=%d\n", string, note);
-    return note;
+    // Use calculate_static_scale_note directly, ignoring chord-based root_note
+    return calculate_static_scale_note(string, scalar_harp_selection, key_signature_selection);
   } else if (scalar_harp_selection == 8 || scalar_harp_selection == 9) {
     uint8_t note = calculate_chord_specific_note(string, scalar_harp_selection, root_note, 
                                                sharp_offset, current_chord, barry_harris_mode);
