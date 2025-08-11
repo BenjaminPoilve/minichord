@@ -400,7 +400,7 @@ AudioEffectPlateReverb   main_reverb;
 AudioMixer4              stereo_l_mixer;        
 AudioMixer4              stereo_r_mixer;   
 AudioOutputI2S           DAC_out;    
-//AudioOutputUSB           USB_out;      
+AudioOutputUSB           USB_out;      
 
 AudioConnection          patchCord2000(string_filter_mixer, 0, string_multiplier, 0);
 AudioConnection          patchCord2001(string_gain, 0, string_multiplier, 1);
