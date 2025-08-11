@@ -88,7 +88,7 @@ const int8_t key_signatures[21] = {
   0, 1, 2, 3, 4, 5, 1, // C, G, D, A, E, B, F
   2, 3, 4, 5, 6, // Bb, Eb, Ab, Db, Gb
   6, 7, 5, 6, 7, 6, 7, // F#=Gb, C# (7 sharps), G#=Ab, D#=Eb, A#=Bb, E#=F, B# (7 sharps)
-  6, 6 // Fb (6 flats), Cb (6 flats)
+  8, 7 // Fb (6 flats), Cb (7 flats)
 };
 
 const int8_t sharp_notes[7][7] = {
@@ -101,29 +101,29 @@ const int8_t sharp_notes[7][7] = {
   {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E, BTN_B} // 7 sharps: F#, C#, G#, D#, A#, E#, B#
 };
 
-const int8_t flat_notes[7][7] = {
+const int8_t flat_notes[8][7] = {
   {BTN_B, -1, -1, -1, -1, -1, -1}, // 1 flat: Bb
   {BTN_B, BTN_E, -1, -1, -1, -1, -1}, // 2 flats: Bb, Eb
   {BTN_B, BTN_E, BTN_A, -1, -1, -1, -1}, // 3 flats: Bb, Eb, Ab
   {BTN_B, BTN_E, BTN_A, BTN_D, -1, -1, -1}, // 4 flats: Bb, Eb, Ab, Db
   {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, -1, -1}, // 5 flats: Bb, Eb, Ab, Db, Gb
   {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, -1}, // 6 flats: Bb, Eb, Ab, Db, Gb, Cb
-  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F} // 7 flats: Bb, Eb, Ab, Db, Gb, Cb, Fb
+  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F}, // 7 flats: Bb, Eb, Ab, Db, Gb, Cb, Fb
+  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F}  // 8 flats: Bb, Eb, Ab, Db, Gb, Cb, Fb
 };
 
 // Double-sharp notes for G#, D#, A#, E#, B#
 const int8_t double_sharp_notes[5][6] = {
-  {BTN_F, BTN_C, -1, -1, -1, -1}, // G#: F##, C##
-  {BTN_F, BTN_C, BTN_G, -1, -1, -1}, // D#: F##, C##, G##
-  {BTN_F, BTN_C, BTN_G, BTN_D, -1, -1}, // A#: F##, C##, G##, D##
-  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, -1}, // E#: F##, C##, G##, D##, A##
-  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E} // B#: F##, C##, G##, D##, A##, E##
+  {BTN_F, BTN_C, -1, -1, -1, -1}, // G#: F##
+  {BTN_F, BTN_C, -1, -1, -1, -1}, // D#: F##, C##
+  {BTN_F, BTN_C, BTN_G, -1, -1, -1}, // A#: F##, C##, G##
+  {BTN_F, BTN_C, BTN_G, BTN_D, -1, -1}, // E#: F##, C##, G##, D##
+  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, -1} // B#: F##, C##, G##, D##, A##
 };
 
-// Double-flat notes for Fb (Bbb), Cb (no double-flats)
-const int8_t double_flat_notes[2][1] = {
+// Double-flat notes for Fb (Bbb)
+const int8_t double_flat_notes[1][1] = {
   {BTN_B}, // Fb: Bbb
-  {-1}     // Cb: No double-flats
 };
 uint8_t scalar_harp_selection = 0; // Selected mode: 0=Chord-based (default), 1=Major, 2=Major Pentatonic, 3=Minor Pentatonic, 4=Diminished 6th Scale, 5=Relative Natural Minor, 6=Relative Harmonic Minor, 7=Relative Minor Pentatonic
 // Scale intervals (semitones from root note), indexed from 1
@@ -611,96 +611,105 @@ void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
   AudioInterrupts();
 }
 // Function to compute MIDI note offset dynamically with circular frame shift
-int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) { 
-  int8_t note = base_notes[button]; // Start with base note in C (e.g., B=11, E=4, ..., F=5)
-  // Apply circular frame shift
-  int8_t musical_index;
-  switch (button) {
-    case BTN_B: musical_index = 6; break;
-    case BTN_E: musical_index = 2; break;
-    case BTN_A: musical_index = 5; break;
-    case BTN_D: musical_index = 1; break;
-    case BTN_G: musical_index = 4; break;
-    case BTN_C: musical_index = 0; break;
-    case BTN_F: musical_index = 3; break;
-    default: musical_index = 0;
-  }
-  if (musical_index < shift) {
-    note += 12; // Move up one octave if note is shifted
-  }
-  int8_t num_accidentals = key_signatures[key];
-  // Apply single sharps/flats
-  if (key <= KEY_SIG_B || (key >= KEY_SIG_Fs && key <= KEY_SIG_Es)) { // Sharp keys (C, G, D, A, E, B, F#, C#, G#, D#, A#, E#)
-    for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
-      if (button == sharp_notes[num_accidentals - 1][i]) {
-        note += 1; // Add sharp
-      }
+int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
+    int8_t note = base_notes[button];
+    int8_t musical_index;
+
+    switch (button) {
+        case BTN_B: musical_index = 6; break;
+        case BTN_E: musical_index = 2; break;
+        case BTN_A: musical_index = 5; break;
+        case BTN_D: musical_index = 1; break;
+        case BTN_G: musical_index = 4; break;
+        case BTN_C: musical_index = 0; break;
+        case BTN_F: musical_index = 3; break;
+        default:    musical_index = 0;
     }
-  } else if (key == KEY_SIG_Bs || key == KEY_SIG_Cs || key == KEY_SIG_Gs || key == KEY_SIG_Ds || key == KEY_SIG_As || key == KEY_SIG_Es) { // Keys with double-sharps
-    for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
-      if (button == sharp_notes[num_accidentals - 1][i]) {
-        note += 1; // Add sharp
-      }
+
+    if (musical_index < shift) {
+        note += 12;
     }
-    // Apply double-sharps
-    int double_sharp_index;
-    if (key == KEY_SIG_Gs) double_sharp_index = 0; // G#: F##, C##
-    else if (key == KEY_SIG_Ds) double_sharp_index = 1; // D#: F##, C##, G##
-    else if (key == KEY_SIG_As) double_sharp_index = 2; // A#: F##, C##, G##, D##
-    else if (key == KEY_SIG_Es) double_sharp_index = 3; // E#: F##, C##, G##, D##, A##
-    else if (key == KEY_SIG_Bs || key == KEY_SIG_Cs) double_sharp_index = 4; // B#, C#: F##, C##, G##, D##, A##, E##
-    else double_sharp_index = -1;
-    if (double_sharp_index >= 0) {
-      for (int i = 0; i < 6 && double_sharp_notes[double_sharp_index][i] != -1; i++) {
-        if (button == double_sharp_notes[double_sharp_index][i]) {
-          note += 1; // Add double-sharp
-          if (key_change_timer >= LOG_THROTTLE) {
-            DEBUG_PRINTF("Applied double-sharp to button %d in key %d\n", button, key);
-            key_change_timer = 0;
-          }
+
+    int8_t num_accidentals = key_signatures[key];
+
+    // --- Apply sharps for sharp keys ---
+    if (key <= KEY_SIG_B || (key >= KEY_SIG_Fs && key <= KEY_SIG_Es && key != KEY_SIG_Gb)) {
+        for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
+            if (button == sharp_notes[num_accidentals - 1][i]) {
+                note += 1;
+                DEBUG_PRINTF("Applied sharp to button %d in key %d, note=%d\n", button, key, note);
+            }
         }
-      }
     }
-  } else { // Flat keys (F, Bb, Eb, Ab, Db, Gb, Fb, Cb)
-    for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
-      if (button == flat_notes[num_accidentals - 1][i]) {
-        note -= 1; // Add flat
-      }
+    // --- Apply flats for flat keys EXCEPT Fb (handled separately) ---
+    else if ((key == KEY_SIG_F || (key >= KEY_SIG_Bb && key <= KEY_SIG_Cb)) && key != KEY_SIG_Fb) {
+        for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
+            if (button == flat_notes[num_accidentals - 1][i]) {
+                note -= 1;
+                DEBUG_PRINTF("Applied flat to button %d in key %d, note=%d\n", button, key, note);
+            }
+        }
     }
-    // Apply double-flats for Fb
+
+    // --- Apply double-flats for Fb ---
     if (key == KEY_SIG_Fb) {
-      int double_flat_index = 0; // Fb: Bbb
-      for (int i = 0; i < 1 && double_flat_notes[double_flat_index][i] != -1; i++) {
-        if (button == double_flat_notes[double_flat_index][i]) {
-          note -= 1; // Add double-flat (Bbb)
-          if (key_change_timer >= LOG_THROTTLE) {
-            DEBUG_PRINTF("Applied double-flat to button %d in key %d\n", button, key);
-            key_change_timer = 0;
-          }
+        // Apply normal flats for 8-flat key, except for double-flats
+        for (int i = 0; i < 7 && flat_notes[7][i] != -1; i++) {
+            bool is_double_flat = false;
+            for (int j = 0; j < 1 && double_flat_notes[0][j] != -1; j++) {
+                if (button == double_flat_notes[0][j]) {
+                    is_double_flat = true;
+                    break;
+                }
+            }
+            if (!is_double_flat && button == flat_notes[7][i]) {
+                note -= 1;
+                DEBUG_PRINTF("Applied flat to button %d in Fb, note=%d\n", button, note);
+            }
         }
-      }
+        // Apply double-flats (-2 total) to designated notes
+        for (int i = 0; i < 1 && double_flat_notes[0][i] != -1; i++) {
+            if (button == double_flat_notes[0][i]) {
+                note -= 2;
+                DEBUG_PRINTF("Applied double-flat to button %d in Fb, note=%d\n", button, note);
+            }
+        }
     }
-  }
-  return note;
+
+    // --- Apply double-sharps ---
+    if (key == KEY_SIG_Bs || key == KEY_SIG_Cs || key == KEY_SIG_Gs || key == KEY_SIG_Ds || key == KEY_SIG_As || key == KEY_SIG_Es) {
+        int double_sharp_index = -1;
+        if (key == KEY_SIG_Gs) double_sharp_index = 0;
+        else if (key == KEY_SIG_Ds) double_sharp_index = 1;
+        else if (key == KEY_SIG_As) double_sharp_index = 2;
+        else if (key == KEY_SIG_Es) double_sharp_index = 3;
+        else if (key == KEY_SIG_Bs || key == KEY_SIG_Cs) double_sharp_index = 4;
+        if (double_sharp_index >= 0) {
+            for (int i = 0; i < 6 && double_sharp_notes[double_sharp_index][i] != -1; i++) {
+                if (button == double_sharp_notes[double_sharp_index][i]) {
+                    note += 1; // +1 after single sharp = double-sharp
+                    DEBUG_PRINTF("Applied double-sharp to button %d in key %d, note=%d\n", button, key, note);
+                }
+            }
+        }
+    }
+
+    DEBUG_PRINTF("get_root_button: key=%d, button=%d, note=%d\n", key, button, note);
+    return note;
 }
+
 // function to calculate the frequency of individual chord notes
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
   uint8_t note = 0;
   uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
-  if (slashed && level % 10 == note_slash_level) {
-    if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
-    } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
-    }
-  } else {
-    if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
-    } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
-    }
-  }
-  return note;
+  int8_t root_note = slashed && (level % 10 == note_slash_level)
+                     ? get_root_button(key_signature_selection, chord_frame_shift, slash_value)
+                     : get_root_button(key_signature_selection, chord_frame_shift, fundamental);
+  int8_t sharp_offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
+  note = 12 * (level / 10) + root_note + sharp_offset + (*current_chord)[level % 10];
+  DEBUG_PRINTF("calculate_note_chord: voice=%d, level=%d, root_note=%d, sharp_offset=%d, chord_offset=%d, note=%d\n",
+               voice, level, root_note, sharp_offset, (*current_chord)[level % 10], note);
+  return note % 128; // Ensure note stays within MIDI range
 }
 // Enum for chord types to replace pointer comparisons
 enum ChordType {
@@ -898,25 +907,32 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
   
   debug_chord_info(scalar_harp_selection, harp_shuffling_selection, root_note, current_chord);
   
-  // Prioritize chromatic mode
   if (chromatic_harp_mode) {
-    DEBUG_PRINTLN("Chromatic mode active");
-    return calculate_chromatic_note(string);
+    uint8_t note = calculate_chromatic_note(string);
+    DEBUG_PRINTF("Harp string %d: chromatic note=%d\n", string, note);
+    return note;
   }
   
   if (scalar_harp_selection == 0) {
-    return calculate_chord_tones_note(string, root_note, sharp_offset, slashed, 
-                                    note_slash_level, current_chord, harp_shuffling_selection);
+    uint8_t note = calculate_chord_tones_note(string, root_note, sharp_offset, slashed, 
+                                             note_slash_level, current_chord, harp_shuffling_selection);
+    DEBUG_PRINTF("Harp string %d: chord tones note=%d\n", string, note);
+    return note;
   } else if (scalar_harp_selection >= 1 && scalar_harp_selection <= 7) {
-    return calculate_static_scale_note(string, scalar_harp_selection, key_signature_selection);
+    uint8_t note = calculate_static_scale_note(string, scalar_harp_selection, key_signature_selection);
+    DEBUG_PRINTF("Harp string %d: static scale note=%d\n", string, note);
+    return note;
   } else if (scalar_harp_selection == 8 || scalar_harp_selection == 9) {
-    return calculate_chord_specific_note(string, scalar_harp_selection, root_note, 
-                                       sharp_offset, current_chord, barry_harris_mode);
+    uint8_t note = calculate_chord_specific_note(string, scalar_harp_selection, root_note, 
+                                               sharp_offset, current_chord, barry_harris_mode);
+    DEBUG_PRINTF("Harp string %d: chord-specific note=%d\n", string, note);
+    return note;
   } else {
-    DEBUG_PRINTF("Invalid scalar_harp_selection=%d, defaulting to chord tones mode\n", 
-                  scalar_harp_selection);
-    return calculate_chord_tones_note(string, root_note, sharp_offset, slashed, 
-                                    note_slash_level, current_chord, harp_shuffling_selection);
+    DEBUG_PRINTF("Invalid scalar_harp_selection=%d, defaulting to chord tones\n", scalar_harp_selection);
+    uint8_t note = calculate_chord_tones_note(string, root_note, sharp_offset, slashed, 
+                                            note_slash_level, current_chord, harp_shuffling_selection);
+    DEBUG_PRINTF("Harp string %d: default chord tones note=%d\n", string, note);
+    return note;
   }
 }
 //-->>RYTHM MODE UTILITIES
