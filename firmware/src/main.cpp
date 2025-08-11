@@ -51,10 +51,7 @@ uint8_t aug[7] = {0, 4, 8, 12, 2, 5, 9};
 uint8_t dim[7] = {0, 3, 6, 12, 2, 5, 9};
 uint8_t full_dim[7] = {0, 3, 6, 9, 2, 5, 12};
 uint8_t key_signature_selection = 0; // 0=C, 1=G, 2=D, 3=A, 4=E, 5=B, 6=F, 7=Bb, 8=Eb, 9=Ab, 10=Db, 11=Gb
-/* enum KeySig { // Enums for KeySigs
-  KEY_SIG_C, KEY_SIG_G, KEY_SIG_D, KEY_SIG_A, KEY_SIG_E, KEY_SIG_B,
-  KEY_SIG_F, KEY_SIG_Bb, KEY_SIG_Eb, KEY_SIG_Ab, KEY_SIG_Db, KEY_SIG_Gb
-}; */
+
 enum Button { // Button enum in hardware order: B, E, A, D, G, C, F
   BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F
 };
@@ -67,8 +64,8 @@ bool key_change_mode = false; // Flag for key change mode
 elapsedMillis key_change_timer; // Timer for key change mode timeout and logging
 bool preset_inhibit = false; // Flag to inhibit preset changes
 const uint32_t KEY_CHANGE_TIMEOUT = 5000; // 5-second timeout for key change mode
-const uint32_t SIMULTANEOUS_WINDOW = 100; // 100ms window for Up+Down simultaneous press
-const uint32_t PRESET_INHIBIT_DELAY = 200; // 200ms preset inhibition after key change mode
+const uint32_t SIMULTANEOUS_WINDOW = 150; // 100ms window for Up+Down simultaneous press
+const uint32_t PRESET_INHIBIT_DELAY = 300; // 200ms preset inhibition after key change mode
 const uint32_t LOG_THROTTLE = 500; // 500ms throttle for logs
 
 // Expanded KeySig enum
@@ -1603,7 +1600,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
       // Trigger LED flash with key-specific hue
       set_led_color(key_hues[selected_key], 1.0, 1.0); // Full brightness
       key_flash_timer.priority(255);
-      key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 200000); // 200ms flash
+      key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 400000); // 400ms flash
       if (key_change_timer >= LOG_THROTTLE) {
         DEBUG_PRINTF("Key signature changed to %s (value=%d, hue=%.2f)\n", 
                      selected_key_name, selected_key, key_hues[selected_key]);
