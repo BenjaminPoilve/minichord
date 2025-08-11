@@ -1458,7 +1458,7 @@ void pulse_key_change_led() {
   static bool led_on = false;
   led_on = !led_on; // Toggle state
   if (led_on) {
-    set_led_color(0, 1.0, 1.0); // Red (hue = 0), full saturation, full brightness
+    set_led_color(0, 1.0, 1.0); // Red, full saturation, full brightness
   } else {
     set_led_color(0, 1.0, 0.2); // Red, full saturation, dim (20% brightness)
   }
@@ -1468,11 +1468,14 @@ void pulse_key_change_led() {
 void key_flash_off(IntervalTimer *timer) {
   timer->end();
   if (key_change_mode) {
-    // Restore pulsing LED (handled by pulse_key_change_led)
-    set_led_color(0, 1.0, 0.2); // Dim red to match pulsing state
+    // Resume pulsing immediately
+    set_led_color(0, 1.0, 0.2); // Dim red to align with pulse cycle
+    color_led_blink_timer.begin(pulse_key_change_led, 100000); // Restart pulsing
+    DEBUG_PRINTLN("Key flash off: Resumed pulsing LED");
   } else {
     // Restore bank color
     set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
+    DEBUG_PRINTLN("Key flash off: Restored bank color");
   }
 }
 
@@ -1487,27 +1490,8 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
 
   // Hue values for key signatures (0-360°, spread over 21 keys)
   static const float key_hues[21] = {
-    0.0,    // C
-    17.14,  // G
-    34.29,  // D
-    51.43,  // A
-    68.57,  // E
-    85.71,  // B
-    102.86, // F
-    120.0,  // Bb
-    137.14, // Eb
-    154.29, // Ab
-    171.43, // Db
-    188.57, // Gb/F#
-    205.71, // C#/Db
-    222.86, // G#/Ab
-    240.0,  // D#/Eb
-    257.14, // A#/Bb
-    274.29, // E#/F
-    291.43, // B#/C
-    308.57, // Fb/E
-    325.71, // Cb/B
-    342.86  // E#/F (same as F)
+    0.0, 17.14, 34.29, 51.43, 68.57, 85.71, 102.86, 120.0, 137.14, 154.29, 171.43,
+    188.57, 205.71, 222.86, 240.0, 257.14, 274.29, 291.43, 308.57, 325.71, 342.86
   };
 
   // Handle Up/Down button presses
@@ -1541,7 +1525,9 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
     chord_pressed = false;
     selected_key = -1;
     selected_key_name = "";
-    color_led_blink_timer.begin(pulse_key_change_led, 100000);
+    key_flash_timer.end(); // Ensure flash timer is cleared
+    color_led_blink_timer.end(); // Stop any existing pulsing
+    color_led_blink_timer.begin(pulse_key_change_led, 100000); // Start pulsing
     if (!logged_mode) {
       DEBUG_PRINTLN("Entered key change mode");
       logged_mode = true;
@@ -1607,31 +1593,30 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
 
     // Apply the selected key and trigger flash
     if (chord_pressed && selected_key != -1 && selected_key != key_signature_selection) {
-      key_flash_timer.end(); // Cancel any ongoing flash
+      color_led_blink_timer.end(); // Stop pulsing during flash
+      key_flash_timer.end(); // Ensure no existing flash
       key_signature_selection = selected_key;
       current_sysex_parameters[35] = selected_key;
       updateHarpNotes();
       updateChordNotes();
       flag_save_needed = true;
-      // Trigger LED flash with key-specific hue
+      // Trigger brief LED flash with key-specific hue
       set_led_color(key_hues[selected_key], 1.0, 1.0); // Full brightness
-      key_flash_timer.priority(255);
-      key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 400000); // 400ms flash
-      if (key_change_timer >= LOG_THROTTLE) {
-        DEBUG_PRINTF("Key signature changed to %s (value=%d, hue=%.2f)\n", 
-                     selected_key_name, selected_key, key_hues[selected_key]);
-        key_change_timer = 0;
-      }
+      key_flash_timer.priority(200); // Higher priority to ensure timely execution
+      key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 200000); // 200ms flash
+    if (key_change_timer >= LOG_THROTTLE) {
+      DEBUG_PRINTF("Key signature changed to %s (value=%d, hue=%.2f), flash triggered\n", 
+                   selected_key_name, selected_key, key_hues[selected_key]);
+      key_change_timer = 0;
     }
+  }
 
-    // Update any_chord_pressed
-    any_chord_pressed = false;
-    for (int i = 1; i <= 21; i++) {
-      if (chord_matrix_array[i].read_value()) {
-        any_chord_pressed = true;
-        break;
-      }
-    }
+  // Resume pulsing if in key change mode, no chord buttons pressed, and pulsing stopped
+  if (key_change_mode && !any_chord_pressed && !color_led_blink_timer) {
+    color_led_blink_timer.begin(pulse_key_change_led, 100000);
+    DEBUG_PRINTLN("Resumed pulsing LED: No chord buttons pressed");
+  }
+
 
     // Exit key change mode
     if (key_change_mode && !up_state && !down_state && !any_chord_pressed) {
