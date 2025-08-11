@@ -325,6 +325,10 @@ uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp);
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
 void calculate_ws_array();
 void rythm_tick_function();
+int8_t calculate_sharp_offset(bool sharp, bool flat_button_modifier);
+uint8_t get_root_note(bool slashed, uint8_t key_signature_selection, 
+                     uint8_t chord_frame_shift, uint8_t effective_fundamental, 
+                     uint8_t slash_value);
 
 //-->>LED HSV CALCULATION
 // function to calculate led RGB value, thank you SO
@@ -562,9 +566,17 @@ void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
 }
 // Function to compute MIDI note offset dynamically with circular frame shift
 int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) { 
-  int8_t note = base_notes[button]; // Start with base note in C (e.g., B = 11, E = 4, ..., F = 5)
+/*   if (key > 21 || button > 6) {
+    Serial.printf("Invalid key=%d or button=%d, returning 0\n", key, button);
+    return 0;
+  } */
+    if (key > 11 || button > 6) {
+    Serial.printf("Invalid key=%d or button=%d, returning 0\n", key, button);
+    return 0;
+  }
+  
+  int8_t note = base_notes[button]; // Start with base note in C (e.g., B=11, E=4, ..., C=0)
   // Apply circular frame shift: move notes C, D, E, F, G, A, B up an octave based on shift
-  // Map button to musical note index (C=0, D=1, E=2, F=3, G=4, A=5, B=6)
   int8_t musical_index;
   switch (button) {
     case BTN_B: musical_index = 6; break; // B
@@ -574,45 +586,59 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
     case BTN_G: musical_index = 4; break; // G
     case BTN_C: musical_index = 0; break; // C
     case BTN_F: musical_index = 3; break; // F
-    default: musical_index = 0; // Should not happen
+    default: musical_index = 0; break;
   }
   if (musical_index < shift) {
-    note += 12; // Move up one octave if the note is shifted "on top"
+    note += 12; // Move up one octave if the note is shifted
   }
-  int8_t num_accidentals = key_signatures[key];   // Apply key signature (sharps or flats)
+  
+  int8_t num_accidentals = key_signatures[key]; // Apply key signature (sharps or flats)
   if (key <= KEY_SIG_B) { // Sharp keys (C, G, D, A, E, B)
     for (int i = 0; i < num_accidentals; i++) {
       if (button == sharp_notes[num_accidentals - 1][i]) {
-        note += 1; // Add sharp
+        note = (note + 1) % 12; // Add sharp, ensure modulo
       }
     }
   } else { // Flat keys (F, Bb, Eb, Ab, Db, Gb)
     for (int i = 0; i < num_accidentals; i++) {
       if (button == flat_notes[num_accidentals - 1][i]) {
-        note -= 1; // Add flat
+        note = (note + 11) % 12; // Add flat (-1), ensure modulo
       }
     }
   }
-
-  return note; //No need to constrain here
+  
+  Serial.printf("get_root_button: key=%d, button=%d, note=%d\n", key, button, note);
+  return note;
 }
 // function to calculate the frequency of individual chord notes
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
-  uint8_t note = 0;
-  uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
-  if (slashed && level % 10 == note_slash_level) {
-    if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
-    } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
-    }
-  } else {
-    if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
-    } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
-    }
+  if (voice > 6) {
+    Serial.printf("Invalid voice=%d, returning 0\n", voice);
+    return 0;
   }
+  
+  uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
+  uint8_t note;
+  int8_t sharp_offset = calculate_sharp_offset(sharp, flat_button_modifier);
+  
+  uint8_t root_note = get_root_note(slashed, key_signature_selection, chord_frame_shift, 
+                                   fundamental, slash_value);
+  if (root_note >= 12) {
+    Serial.printf("Invalid root_note=%d, defaulting to 0\n", root_note);
+    root_note = 0;
+  }
+  
+  if (slashed && level % 10 == note_slash_level) {
+    note = (12 * (level / 10) + root_note + sharp_offset);
+    Serial.printf("Applied %s to button %d in key %d, note=%d\n", 
+                  flat_button_modifier ? "flat" : "sharp", slash_value, key_signature_selection, note);
+  } else {
+    note = (12 * (level / 10) + root_note + sharp_offset + (*current_chord)[level % 10]);
+  }
+  
+  note = note % 12; // Ensure note is within [0, 11] before adding octave
+  Serial.printf("calculate_note_chord: voice=%d, level=%d, root_note=%d, sharp_offset=%d, chord_offset=%d, note=%d\n",
+                voice, level, root_note, sharp_offset, (*current_chord)[level % 10], note);
   return note;
 }
 // Enum for chord types to replace pointer comparisons
@@ -659,7 +685,10 @@ uint8_t get_root_note(bool slashed, uint8_t key_signature_selection,
 
 // Calculate sharp offset
 int8_t calculate_sharp_offset(bool sharp, bool flat_button_modifier) {
-  return sharp ? (flat_button_modifier ? -1 : 1) : 0;
+  int8_t offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
+  Serial.printf("calculate_sharp_offset: sharp=%d, flat_button_modifier=%d, offset=%d\n",
+                sharp, flat_button_modifier, offset);
+  return offset;
 }
 
 // Get chord type for debugging and scale selection
