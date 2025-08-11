@@ -612,35 +612,48 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
 }
 // function to calculate the frequency of individual chord notes
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
-  if (voice > 6) {
-    Serial.printf("Invalid voice=%d, returning 0\n", voice);
-    return 0;
-  }
-  
-  uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
-  uint8_t note;
-  int8_t sharp_offset = calculate_sharp_offset(sharp, flat_button_modifier);
-  
-  uint8_t root_note = get_root_note(slashed, key_signature_selection, chord_frame_shift, 
-                                   fundamental, slash_value);
-  if (root_note >= 12) {
-    Serial.printf("Invalid root_note=%d, defaulting to 0\n", root_note);
-    root_note = 0;
-  }
-  
-  if (slashed && level % 10 == note_slash_level) {
-    note = (12 * (level / 10) + root_note + sharp_offset);
-    Serial.printf("Applied %s to button %d in key %d, note=%d\n", 
-                  flat_button_modifier ? "flat" : "sharp", slash_value, key_signature_selection, note);
-  } else {
-    note = (12 * (level / 10) + root_note + sharp_offset + (*current_chord)[level % 10]);
-  }
-  
-  note = note % 12; // Ensure note is within [0, 11] before adding octave
-  Serial.printf("calculate_note_chord: voice=%d, level=%d, root_note=%d, sharp_offset=%d, chord_offset=%d, note=%d\n",
-                voice, level, root_note, sharp_offset, (*current_chord)[level % 10], note);
-  return note;
+    if (voice > 6) {
+        Serial.printf("Invalid voice=%d, returning 0\n", voice);
+        return 0;
+    }
+
+    uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
+    int8_t sharp_offset = calculate_sharp_offset(sharp, flat_button_modifier);
+
+    uint8_t root_note = get_root_note(slashed, key_signature_selection, chord_frame_shift, 
+                                      fundamental, slash_value);
+    if (root_note >= 12) {
+        Serial.printf("Invalid root_note=%d, defaulting to 0\n", root_note);
+        root_note = 0;
+    }
+
+    int note;
+    if (slashed && level % 10 == note_slash_level) {
+        // Slash chord root handling
+        note = 12 * (level / 10) + root_note + sharp_offset;
+        Serial.printf("Applied %s to button %d in key %d, note=%d\n", 
+                      flat_button_modifier ? "flat" : "sharp",
+                      slash_value, key_signature_selection, note);
+    } else {
+        // Normal chord handling
+        note = 12 * (level / 10) + root_note + sharp_offset + (*current_chord)[level % 10];
+    }
+
+    // Preserve octave while normalizing note class
+    int octave = note / 12;
+    int note_class = ((note % 12) + 12) % 12; // Keep within [0, 11], handle negatives
+    note = octave * 12 + note_class;
+
+    Serial.printf(
+        "calculate_note_chord: voice=%d, level=%d, root_note=%d, sharp_offset=%d, "
+        "chord_offset=%d, note_class=%d, octave=%d, final_note=%d\n",
+        voice, level, root_note, sharp_offset, (*current_chord)[level % 10],
+        note_class, octave, note
+    );
+
+    return (uint8_t)note;
 }
+
 // Enum for chord types to replace pointer comparisons
 enum ChordType {
   CHORD_MAJOR,
