@@ -87,7 +87,7 @@ const int8_t key_offsets[21] = {
 const int8_t key_signatures[21] = {
     0, 1, 2, 3, 4, 5, 1, // C, G, D, A, E, B, F
     2, 3, 4, 5, 6,       // Bb, Eb, Ab, Db, Gb
-    6, 7, 7, 8, 10, 11, 12, // F#, C#, G#, D#, A#, E#, B#
+    6, 7, 8, 9, 10, 11, 12, // F#, C#, G#, D#, A#, E#, B#
     8, 7                 // Fb (8 flats), Cb (7 flats)
 };
 
@@ -646,11 +646,11 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
         }
     }
     // Apply double-sharps for G#, D#, A#, E#, B#
-    if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
+    else if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
         int double_sharp_idx = key - KEY_SIG_Gs; // G#=0, D#=1, A#=2, E#=3, B#=4
         for (int i = 0; i < 6 && double_sharp_notes[double_sharp_idx][i] != -1; i++) {
             if (button == double_sharp_notes[double_sharp_idx][i]) {
-                note += 2; // Double-sharp adds 2 semitones
+                note += 1; // Double-sharp adds 2 semitones
                 DEBUG_PRINTF("Applied double-sharp to button %d in key %d, note=%d\n", button, key, note);
             }
         }
@@ -700,7 +700,7 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
             int double_sharp_idx = key - KEY_SIG_Gs;
             for (int i = 0; i < 6 && double_sharp_notes[double_sharp_idx][i] != -1; i++) {
                 if (BTN_C == double_sharp_notes[double_sharp_idx][i]) {
-                    c_note += 2;
+                    c_note += 1;
                     DEBUG_PRINTF("Applied double-sharp to BTN_C in key %d, c_note=%d\n", key, c_note);
                 }
             }
@@ -1641,7 +1641,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
       current_sysex_parameters[35] = selected_key;
       updateHarpNotes();
       updateChordNotes();
-      flag_save_needed = true;
+      //flag_save_needed = true;
       // Trigger brief LED flash with key-specific hue
       set_led_color(key_hues[selected_key], 1.0, 1.0); // Full brightness
       key_flash_timer.priority(200); // Higher priority to ensure timely execution
