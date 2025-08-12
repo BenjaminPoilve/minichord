@@ -85,41 +85,44 @@ const int8_t key_offsets[21] = {
 };
 
 const int8_t key_signatures[21] = {
-  0, 1, 2, 3, 4, 5, 1, // C, G, D, A, E, B, F
-  2, 3, 4, 5, 6, // Bb, Eb, Ab, Db, Gb
-  6, 7, 5, 6, 7, 6, 7, // F#=Gb, C# (7 sharps), G#=Ab, D#=Eb, A#=Bb, E#=F, B# (7 sharps)
-  8, 7 // Fb (6 flats), Cb (7 flats)
+    0, 1, 2, 3, 4, 5, 1, // C, G, D, A, E, B, F
+    2, 3, 4, 5, 6,       // Bb, Eb, Ab, Db, Gb
+    6, 7, 7, 8, 10, 11, 12, // F#, C#, G#, D#, A#, E#, B#
+    8, 7                 // Fb (8 flats), Cb (7 flats)
 };
 
 const int8_t sharp_notes[7][7] = {
-    {BTN_F, -1, -1, -1, -1, -1, -1}, // 1 sharp: F#
-    {BTN_F, BTN_C, -1, -1, -1, -1, -1}, // 2 sharps: F#, C#
-    {BTN_F, BTN_C, BTN_G, -1, -1, -1, -1}, // 3 sharps: F#, C#, G#
-    {BTN_F, BTN_C, BTN_G, BTN_D, -1, -1, -1}, // 4 sharps: F#, C#, G#, D#
-    {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_B, -1}, // 5 sharps: F#, C#, G#, D#, A#, B#
-    {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E, -1}, // 6 sharps: F#, C#, G#, D#, A#, E#
-    {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E, BTN_B} // 7 sharps: F#, C#, G#, D#, A#, E#, B#
+    {BTN_F, -1, -1, -1, -1, -1, -1}, // 1 sharp
+    {BTN_F, BTN_C, -1, -1, -1, -1, -1}, // 2 sharps
+    {BTN_F, BTN_C, BTN_G, -1, -1, -1, -1}, // 3 sharps
+    {BTN_F, BTN_C, BTN_G, BTN_D, -1, -1, -1}, // 4 sharps
+    {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, -1, -1}, // 5 sharps (B major)
+    {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E, -1}, // 6 sharps
+    {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, BTN_E, BTN_B} // 7 sharps
 };
+
 
 const int8_t flat_notes[8][7] = {
-  {BTN_B, -1, -1, -1, -1, -1, -1}, // 1 flat: Bb
-  {BTN_B, BTN_E, -1, -1, -1, -1, -1}, // 2 flats: Bb, Eb
-  {BTN_B, BTN_E, BTN_A, -1, -1, -1, -1}, // 3 flats: Bb, Eb, Ab
-  {BTN_B, BTN_E, BTN_A, BTN_D, -1, -1, -1}, // 4 flats: Bb, Eb, Ab, Db
-  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, -1, -1}, // 5 flats: Bb, Eb, Ab, Db, Gb
-  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, -1}, // 6 flats: Bb, Eb, Ab, Db, Gb, Cb
-  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F}, // 7 flats: Bb, Eb, Ab, Db, Gb, Cb, Fb
-  {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F}  // 8 flats: Bb, Eb, Ab, Db, Gb, Cb, Fb
+    {BTN_B, -1, -1, -1, -1, -1, -1}, // 1 flat
+    {BTN_B, BTN_E, -1, -1, -1, -1, -1}, // 2 flats
+    {BTN_B, BTN_E, BTN_A, -1, -1, -1, -1}, // 3 flats
+    {BTN_B, BTN_E, BTN_A, BTN_D, -1, -1, -1}, // 4 flats
+    {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, -1, -1}, // 5 flats
+    {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, -1}, // 6 flats
+    {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F}, // 7 flats
+    {BTN_B, BTN_E, BTN_A, BTN_D, BTN_G, BTN_C, BTN_F}  // placeholder for 8 flats — double-flat handled separately
 };
 
+
 // Double-sharp notes for G#, D#, A#, E#, B#
-const int8_t double_sharp_notes[5][6] = {
-  {BTN_F, BTN_C, -1, -1, -1, -1}, // G#: F##
-  {BTN_F, BTN_C, -1, -1, -1, -1}, // D#: F##, C##
-  {BTN_F, BTN_C, BTN_G, -1, -1, -1}, // A#: F##, C##, G##
-  {BTN_F, BTN_C, BTN_G, BTN_D, -1, -1}, // E#: F##, C##, G##, D##
-  {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, -1} // B#: F##, C##, G##, D##, A##
+const int8_t double_sharp_notes[5][7] = {
+    {BTN_F, -1, -1, -1, -1, -1, -1}, // G#: F##
+    {BTN_F, BTN_C, -1, -1, -1, -1, -1}, // D#: F##, C##
+    {BTN_F, BTN_C, BTN_G, -1, -1, -1, -1}, // A#: F##, C##, G##
+    {BTN_F, BTN_C, BTN_G, BTN_D, -1, -1, -1}, // E#: F##, C##, G##, D##
+    {BTN_F, BTN_C, BTN_G, BTN_D, BTN_A, -1, -1} // B#: F##, C##, G##, D##, A##
 };
+
 
 // Double-flat notes for Fb (Bbb)
 const int8_t double_flat_notes[1][1] = {
@@ -634,7 +637,7 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
     int8_t num_accidentals = key_signatures[key];
 
     // Apply sharps for sharp keys (C, G, D, A, E, B, F#, C#)
-    if (key <= KEY_SIG_B || (key == KEY_SIG_Fs || key == KEY_SIG_Cs)) {
+    if (key <= KEY_SIG_B || key == KEY_SIG_Fs || key == KEY_SIG_Cs) {
         for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
             if (button == sharp_notes[num_accidentals - 1][i]) {
                 note += 1;
@@ -643,7 +646,7 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
         }
     }
     // Apply double-sharps for G#, D#, A#, E#, B#
-    else if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
+    if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
         int double_sharp_idx = key - KEY_SIG_Gs; // G#=0, D#=1, A#=2, E#=3, B#=4
         for (int i = 0; i < 6 && double_sharp_notes[double_sharp_idx][i] != -1; i++) {
             if (button == double_sharp_notes[double_sharp_idx][i]) {
@@ -655,9 +658,8 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
     // Apply flats for flat keys (F, Bb, Eb, Ab, Db, Gb, Cb, Fb)
     else if (key == KEY_SIG_F || (key >= KEY_SIG_Bb && key <= KEY_SIG_Cb)) {
         for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
-            // Skip single flat for BTN_B in Fb to avoid double-counting with double_flat_notes
             if (key == KEY_SIG_Fb && button == BTN_B) {
-                continue;
+                continue; // Skip single flat for BTN_B in Fb
             }
             if (button == flat_notes[num_accidentals - 1][i]) {
                 note -= 1;
@@ -669,34 +671,37 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
             for (int i = 0; i < 1 && double_flat_notes[0][i] != -1; i++) {
                 if (button == double_flat_notes[0][i]) {
                     note -= 2; // Double-flat subtracts 2 semitones
-                    DEBUG_PRINTF("Applied double-flat to button %d in Fb, note=%d\n", note);
+                    DEBUG_PRINTF("Applied double-flat to button %d in Fb, note=%d\n", button, key, note);
                 }
             }
         }
     }
 
-    // Normalize note to ensure positive values
+    // Normalize note to ensure positive values and correct octave
     int8_t note_class = ((note % 12) + 12) % 12;
     int8_t octave = note / 12;
     note = note_class + octave * 12;
+    DEBUG_PRINTF("After normalization: note_class=%d, octave=%d, note=%d\n", note_class, octave, note);
 
     // Ensure BTN_C is the lowest-pitched when shift=0
     if (shift == 0) {
         int8_t c_note = base_notes[BTN_C] + key_offsets[key];
         // Apply sharps to BTN_C for sharp keys
-        if (key <= KEY_SIG_B || (key == KEY_SIG_Fs || key == KEY_SIG_Cs)) {
+        if (key <= KEY_SIG_B || key == KEY_SIG_Fs || key == KEY_SIG_Cs) {
             for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
                 if (BTN_C == sharp_notes[num_accidentals - 1][i]) {
                     c_note += 1;
+                    DEBUG_PRINTF("Applied sharp to BTN_C in key %d, c_note=%d\n", key, c_note);
                 }
             }
         }
         // Apply double-sharps to BTN_C for G#, D#, A#, E#, B#
-        else if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
+        if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
             int double_sharp_idx = key - KEY_SIG_Gs;
             for (int i = 0; i < 6 && double_sharp_notes[double_sharp_idx][i] != -1; i++) {
                 if (BTN_C == double_sharp_notes[double_sharp_idx][i]) {
                     c_note += 2;
+                    DEBUG_PRINTF("Applied double-sharp to BTN_C in key %d, c_note=%d\n", key, c_note);
                 }
             }
         }
@@ -705,11 +710,12 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
             for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
                 if (BTN_C == flat_notes[num_accidentals - 1][i]) {
                     c_note -= 1;
+                    DEBUG_PRINTF("Applied flat to BTN_C in key %d, c_note=%d\n", key, c_note);
                 }
             }
-            // Apply double-flat to BTN_C for Fb (though BTN_C is not double-flatted)
             if (key == KEY_SIG_Fb && BTN_C == double_flat_notes[0][0]) {
                 c_note -= 2;
+                DEBUG_PRINTF("Applied double-flat to BTN_C in Fb, c_note=%d\n", c_note);
             }
         }
         // Adjust other buttons to be higher than BTN_C
@@ -720,7 +726,7 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
         }
     }
 
-    // Apply frame shift: add an octave if the musical index is less than the shift
+    // Apply frame shift
     if (musical_index < shift) {
         note += 12;
         DEBUG_PRINTF("Applied frame shift to button %d, shift=%d, note=%d\n", button, shift, note);
