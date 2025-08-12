@@ -1425,45 +1425,60 @@ void handleHoldButton() {
 }
 
 void handlePresetChange(uint8_t up_transition, uint8_t down_transition, bool up_state, bool down_state) {
-  // Inhibit preset changes if key_change_mode is active, preset_inhibit is true, or both buttons are held
+  static elapsedMillis single_press_timer;
+  static bool pending_preset_change = false;
+  static bool pending_up = false;
+
+  // If key_change_mode or preset_inhibit is active, or both buttons are held, block preset changes
   if (key_change_mode || preset_inhibit || (up_state && down_state)) {
-    if (up_transition > 1 || down_transition > 1) {
-      if (key_change_timer >= LOG_THROTTLE) {
-        DEBUG_PRINTF("Preset change inhibited: key_change_mode=%d, preset_inhibit=%d, both_held=%d\n",
-                      key_change_mode, preset_inhibit, up_state && down_state);
-        key_change_timer = 0; // Reset timer to extend inhibition
-      }
+    if ((up_transition > 1 || down_transition > 1) && key_change_timer >= LOG_THROTTLE) {
+      DEBUG_PRINTF("Preset change inhibited: key_change_mode=%d, preset_inhibit=%d, both_held=%d\n",
+                   key_change_mode, preset_inhibit, up_state && down_state);
+      key_change_timer = 0;
     }
+    pending_preset_change = false; // Clear any pending preset change
     return;
   }
 
-  // Handle Up button press for next preset
-  if (up_transition == 2 && !down_state && !key_change_mode && !preset_inhibit) {
+  // Detect single button press and start a timer
+  if (up_transition == 2 && !down_state && !pending_preset_change) {
+    pending_preset_change = true;
+    pending_up = true;
+    single_press_timer = 0;
     if (key_change_timer >= LOG_THROTTLE) {
-      DEBUG_PRINTLN("Switching to next preset");
+      DEBUG_PRINTLN("Up button pressed, waiting to confirm preset change");
       key_change_timer = 0;
     }
-    if (!sysex_controler_connected && flag_save_needed) {
-      save_config(current_bank_number, false);
+  } else if (down_transition == 2 && !up_state && !pending_preset_change) {
+    pending_preset_change = true;
+    pending_up = false;
+    single_press_timer = 0;
+    if (key_change_timer >= LOG_THROTTLE) {
+      DEBUG_PRINTLN("Down button pressed, waiting to confirm preset change");
+      key_change_timer = 0;
     }
-    current_bank_number = (current_bank_number + 1) % 12;
-    load_config(current_bank_number);
-    set_led_color(bank_led_hue, 1.0, 1 - led_attenuation); // Update LED to reflect new bank
   }
 
-  // Handle Down button press for previous preset
-  if (down_transition == 2 && !up_state && !key_change_mode && !preset_inhibit) {
+  // Cancel pending preset change if the button is released early or both buttons are pressed
+  if ((up_transition == 1 || down_transition == 1) && pending_preset_change) {
+    pending_preset_change = false;
     if (key_change_timer >= LOG_THROTTLE) {
-      DEBUG_PRINTLN("Switching to previous preset");
+      DEBUG_PRINTLN("Preset change cancelled due to button release");
+      key_change_timer = 0;
+    }
+  }
+
+  // Execute preset change after delay if no simultaneous press occurred
+  if (pending_preset_change && single_press_timer > 150 && !up_state != !down_state) { // Ensure XOR to avoid both pressed
+    pending_preset_change = false;
+    if (key_change_timer >= LOG_THROTTLE) {
+      DEBUG_PRINTLN(pending_up ? "Switching to next preset" : "Switching to previous preset");
       key_change_timer = 0;
     }
     if (!sysex_controler_connected && flag_save_needed) {
       save_config(current_bank_number, false);
     }
-    current_bank_number = (current_bank_number - 1);
-    if (current_bank_number < 0) {
-      current_bank_number = 11;
-    }
+    current_bank_number = pending_up ? (current_bank_number + 1) % 12 : (current_bank_number - 1 + 12) % 12;
     load_config(current_bank_number);
     set_led_color(bank_led_hue, 1.0, 1 - led_attenuation); // Update LED to reflect new bank
   }
@@ -1536,7 +1551,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
     188.57, 205.71, 222.86, 240.0, 257.14, 274.29, 291.43, 308.57, 325.71, 342.86
   };
 
-  // Handle Up/Down button presses
+  // Update button press states
   if (up_transition == 2) {
     up_pressed = true;
     up_press_time = 0;
@@ -1558,7 +1573,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
     key_change_timer = 0;
   }
 
-  // Enter key change mode
+  // Enter key change mode if both buttons are pressed within the simultaneous window
   if (!key_change_mode && up_pressed && down_pressed && 
       up_press_time < SIMULTANEOUS_WINDOW && down_press_time < SIMULTANEOUS_WINDOW) {
     key_change_mode = true;
@@ -1567,16 +1582,35 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
     chord_pressed = false;
     selected_key = -1;
     selected_key_name = "";
-    key_flash_timer.end(); // Ensure flash timer is cleared
-    color_led_blink_timer.end(); // Stop any existing pulsing
-    color_led_blink_timer.begin(pulse_key_change_led, 100000); // Start pulsing
-    if (!logged_mode) {
+    key_flash_timer.end();
+    color_led_blink_timer.end();
+    color_led_blink_timer.begin(pulse_key_change_led, 100000);
+    if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
       DEBUG_PRINTLN("Entered key change mode");
       logged_mode = true;
+      key_change_timer = 0;
     }
   }
 
-  // Inhibit preset changes
+  // Exit key change mode immediately when both buttons are released
+  if (key_change_mode && !up_state && !down_state) {
+    key_change_mode = false;
+    color_led_blink_timer.end();
+    key_flash_timer.end();
+    set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
+    preset_inhibit = true;
+    key_change_timer = 0;
+    chord_pressed = false;
+    selected_key = -1;
+    selected_key_name = "";
+    if (key_change_timer >= LOG_THROTTLE) {
+      DEBUG_PRINTLN("Exited key change mode after UP+DOWN release");
+      logged_mode = true;
+      key_change_timer = 0;
+    }
+  }
+
+  // Inhibit preset changes during key change mode or simultaneous press
   if (key_change_mode || (up_state && down_state)) {
     preset_inhibit = true;
   }
@@ -1635,48 +1669,34 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
 
     // Apply the selected key and trigger flash
     if (chord_pressed && selected_key != -1 && selected_key != key_signature_selection) {
-      color_led_blink_timer.end(); // Stop pulsing during flash
-      key_flash_timer.end(); // Ensure no existing flash
+      color_led_blink_timer.end();
+      key_flash_timer.end();
       key_signature_selection = selected_key;
       current_sysex_parameters[35] = selected_key;
       updateHarpNotes();
       updateChordNotes();
-      //flag_save_needed = true;
-      // Trigger brief LED flash with key-specific hue
-      set_led_color(key_hues[selected_key], 1.0, 1.0); // Full brightness
-      key_flash_timer.priority(200); // Higher priority to ensure timely execution
-      key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 200000); // 200ms flash
-    if (key_change_timer >= LOG_THROTTLE) {
-      DEBUG_PRINTF("Key signature changed to %s (value=%d, hue=%.2f), flash triggered\n", 
-                   selected_key_name, selected_key, key_hues[selected_key]);
-      key_change_timer = 0;
-    }
-  }
-
-  // Resume pulsing if in key change mode, no chord buttons pressed, and pulsing stopped
-  if (key_change_mode && !any_chord_pressed && !color_led_blink_timer) {
-    color_led_blink_timer.begin(pulse_key_change_led, 100000);
-    DEBUG_PRINTLN("Resumed pulsing LED: No chord buttons pressed");
-  }
-
-
-    // Exit key change mode
-    if (key_change_mode && !up_state && !down_state && !any_chord_pressed) {
-      key_change_mode = false;
-      color_led_blink_timer.end();
-      key_flash_timer.end();
-      set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
-      preset_inhibit = true;
-      key_change_timer = 0;
-      chord_pressed = false;
+      flag_save_needed = true; // Uncomment to save key change to preset
+      set_led_color(key_hues[selected_key], 1.0, 1.0);
+      key_flash_timer.priority(200);
+      key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 200000);
       if (key_change_timer >= LOG_THROTTLE) {
-        DEBUG_PRINTLN("Exited key change mode after UP+DOWN release");
-        logged_mode = true;
+        DEBUG_PRINTF("Key signature changed to %s (value=%d, hue=%.2f), flash triggered\n", 
+                     selected_key_name, selected_key, key_hues[selected_key]);
+        key_change_timer = 0;
+      }
+    }
+
+    // Resume pulsing if in key change mode, no chord buttons pressed, and pulsing stopped
+    if (!any_chord_pressed && !color_led_blink_timer && key_change_mode) {
+      color_led_blink_timer.begin(pulse_key_change_led, 100000);
+      if (key_change_timer >= LOG_THROTTLE) {
+        DEBUG_PRINTLN("Resumed pulsing LED: No chord buttons pressed");
+        key_change_timer = 0;
       }
     }
   }
 
-  // Handle timeout
+  // Handle timeout (only if key change mode is still active)
   if (key_change_mode && key_change_timer > KEY_CHANGE_TIMEOUT) {
     key_change_mode = false;
     color_led_blink_timer.end();
@@ -1685,23 +1705,30 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
     preset_inhibit = true;
     key_change_timer = 0;
     chord_pressed = false;
-    DEBUG_PRINTLN("Key change mode timed out");
-    logged_mode = true;
+    selected_key = -1;
+    selected_key_name = "";
+    if (key_change_timer >= LOG_THROTTLE) {
+      DEBUG_PRINTLN("Key change mode timed out");
+      logged_mode = true;
+      key_change_timer = 0;
+    }
   }
 
   // Clear preset inhibition
   if (!key_change_mode && preset_inhibit && key_change_timer > PRESET_INHIBIT_DELAY && 
       !(up_state && down_state)) {
     preset_inhibit = false;
-    if (!logged_mode && key_change_timer >= LOG_THROTTLE) {
+    if (logged_mode && key_change_timer >= LOG_THROTTLE) {
       DEBUG_PRINTLN("Preset inhibition cleared");
-      logged_mode = true;
+      logged_mode = false;
+      key_change_timer = 0;
     }
   }
 
   // Reset logging flag
   if (!key_change_mode && logged_mode && key_change_timer >= LOG_THROTTLE) {
     logged_mode = false;
+    key_change_timer = 0;
   }
 }
 
