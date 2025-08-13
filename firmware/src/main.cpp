@@ -648,7 +648,7 @@ int8_t num_accidentals = key_signatures[key];
       }
     }
   } else if (key == KEY_SIG_F || (key >= KEY_SIG_Bb && key <= KEY_SIG_Cb)) {
-    for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
+    for (int i = 0; i < 7 && i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
       if (key == KEY_SIG_Fb && button == BTN_B) {
         continue; // Skip single flat for BTN_B in Fb (handled as double below)
       }
