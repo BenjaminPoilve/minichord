@@ -76,13 +76,15 @@ enum KeySig {
   KEY_SIG_Fb, KEY_SIG_Cb
 };
 
-// Updated key signature arrays (unchanged from previous response)
-const int8_t key_offsets[21] = {
+ // Updated key signature arrays
+const int8_t keysig_offsets[21] = {
   0, 7, 2, 9, 4, 11, 5, // C, G, D, A, E, B, F
   10, 3, 8, 1, 6, // Bb, Eb, Ab, Db, Gb
   6, 1, 8, 3, 10, 5, 0, // F#=Gb, C#=Db, G#=Ab, D#=Eb, A#=Bb, E#=F, B#=C
   4, 11 // Fb=E, Cb=B
-};
+}; 
+
+const int8_t key_offsets[21] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 const int8_t key_signatures[21] = {
     0, 1, 2, 3, 4, 5, 1, // C, G, D, A, E, B, F
@@ -615,7 +617,53 @@ void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
 }
 // Function to compute MIDI note offset dynamically with circular frame shift
 int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
-    int8_t note = base_notes[button]; // Base note offsets: B=11, E=4, A=9, D=2, G=7, C=0, F=5
+    int8_t note = base_notes[button] + key_offsets[key];
+    DEBUG_PRINTF("Base note for button %d in key %d: %d\n", button, key, note);
+int8_t num_accidentals = key_signatures[key];
+
+  if (key <= KEY_SIG_B || key == KEY_SIG_Fs || key == KEY_SIG_Cs) {
+    for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
+      if (button == sharp_notes[num_accidentals - 1][i]) {
+        note += 1;
+        DEBUG_PRINTF("Applied sharp to button %d in key %d, note=%d\n", button, key, note);
+      }
+    }
+  } else if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
+    // Add +1 for all 7 regular sharps (equivalent to 7-sharps base)
+    for (int i = 0; i < 7 && sharp_notes[6][i] != -1; i++) {
+      if (button == sharp_notes[6][i]) {
+        note += 1;
+        DEBUG_PRINTF("Applied regular sharp to button %d in enharmonic sharp key %d, note=%d\n", button, key, note);
+      }
+    }
+    // Add extra +1 for doubles
+    int double_sharp_idx = key - KEY_SIG_Gs;
+    for (int i = 0; i < 7 && double_sharp_notes[double_sharp_idx][i] != -1; i++) {
+      if (button == double_sharp_notes[double_sharp_idx][i]) {
+        note += 1;
+        DEBUG_PRINTF("Applied double-sharp to button %d in key %d, note=%d\n", button, key, note);
+      }
+    }
+  } else if (key == KEY_SIG_F || (key >= KEY_SIG_Bb && key <= KEY_SIG_Cb)) {
+    for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
+      if (key == KEY_SIG_Fb && button == BTN_B) {
+        continue; // Skip single flat for BTN_B in Fb (handled as double below)
+      }
+      if (button == flat_notes[num_accidentals - 1][i]) {
+        note -= 1;
+        DEBUG_PRINTF("Applied flat to button %d in key %d, note=%d\n", button, key, note);
+      }
+    }
+    // Double-flat for Fb
+    if (key == KEY_SIG_Fb) {
+      for (int i = 0; i < 1 && double_flat_notes[0][i] != -1; i++) {
+        if (button == double_flat_notes[0][i]) {
+          note -= 2;
+          DEBUG_PRINTF("Applied double-flat to button %d in Fb, note=%d\n", button, key, note);
+        }
+      }
+    }
+  }
     int8_t musical_index;
 
     // Map button to musical index for frame shift (C=0, D=1, E=2, F=3, G=4, A=5, B=6)
@@ -630,106 +678,31 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
         default:    musical_index = 0; break;
     }
 
-    // Apply key offset
-    note += key_offsets[key];
-    DEBUG_PRINTF("Base note for button %d in key %d: %d\n", button, key, note);
-
-    int8_t num_accidentals = key_signatures[key];
-
-    // Apply sharps for sharp keys (C, G, D, A, E, B, F#, C#)
-    if (key <= KEY_SIG_B || key == KEY_SIG_Fs || key == KEY_SIG_Cs) {
-        for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
-            if (button == sharp_notes[num_accidentals - 1][i]) {
-                note += 1;
-                DEBUG_PRINTF("Applied sharp to button %d in key %d, note=%d\n", button, key, note);
-            }
-        }
-    }
-    // Apply double-sharps for G#, D#, A#, E#, B#
-    else if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
-        int double_sharp_idx = key - KEY_SIG_Gs; // G#=0, D#=1, A#=2, E#=3, B#=4
-        for (int i = 0; i < 6 && double_sharp_notes[double_sharp_idx][i] != -1; i++) {
-            if (button == double_sharp_notes[double_sharp_idx][i]) {
-                note += 1; // Double-sharp adds 2 semitones
-                DEBUG_PRINTF("Applied double-sharp to button %d in key %d, note=%d\n", button, key, note);
-            }
-        }
-    }
-    // Apply flats for flat keys (F, Bb, Eb, Ab, Db, Gb, Cb, Fb)
-    else if (key == KEY_SIG_F || (key >= KEY_SIG_Bb && key <= KEY_SIG_Cb)) {
-        for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
-            if (key == KEY_SIG_Fb && button == BTN_B) {
-                continue; // Skip single flat for BTN_B in Fb
-            }
-            if (button == flat_notes[num_accidentals - 1][i]) {
-                note -= 1;
-                DEBUG_PRINTF("Applied flat to button %d in key %d, note=%d\n", button, key, note);
-            }
-        }
-        // Apply double-flat for Fb (B → Bbb)
-        if (key == KEY_SIG_Fb) {
-            for (int i = 0; i < 1 && double_flat_notes[0][i] != -1; i++) {
-                if (button == double_flat_notes[0][i]) {
-                    note -= 2; // Double-flat subtracts 2 semitones
-                    DEBUG_PRINTF("Applied double-flat to button %d in Fb, note=%d\n", button, key, note);
-                }
-            }
-        }
-    }
-
     // Normalize note to ensure positive values and correct octave
     int8_t note_class = ((note % 12) + 12) % 12;
     int8_t octave = note / 12;
     note = note_class + octave * 12;
     DEBUG_PRINTF("After normalization: note_class=%d, octave=%d, note=%d\n", note_class, octave, note);
 
+    // Apply frame shift
+    if (musical_index < shift) {
+        note += 12;
+        DEBUG_PRINTF("Applied frame shift to button %d, shift=%d, note=%d\n", button, shift, note);
+    }
+
     // Ensure BTN_C is the lowest-pitched when shift=0
     if (shift == 0) {
         int8_t c_note = base_notes[BTN_C] + key_offsets[key];
-        // Apply sharps to BTN_C for sharp keys
-        if (key <= KEY_SIG_B || key == KEY_SIG_Fs || key == KEY_SIG_Cs) {
-            for (int i = 0; i < num_accidentals && sharp_notes[num_accidentals - 1][i] != -1; i++) {
-                if (BTN_C == sharp_notes[num_accidentals - 1][i]) {
-                    c_note += 1;
-                    DEBUG_PRINTF("Applied sharp to BTN_C in key %d, c_note=%d\n", key, c_note);
-                }
-            }
-        }
-        // Apply double-sharps to BTN_C for G#, D#, A#, E#, B#
-        if (key >= KEY_SIG_Gs && key <= KEY_SIG_Bs) {
-            int double_sharp_idx = key - KEY_SIG_Gs;
-            for (int i = 0; i < 6 && double_sharp_notes[double_sharp_idx][i] != -1; i++) {
-                if (BTN_C == double_sharp_notes[double_sharp_idx][i]) {
-                    c_note += 1;
-                    DEBUG_PRINTF("Applied double-sharp to BTN_C in key %d, c_note=%d\n", key, c_note);
-                }
-            }
-        }
-        // Apply flats to BTN_C for flat keys
-        else if (key == KEY_SIG_F || (key >= KEY_SIG_Bb && key <= KEY_SIG_Cb)) {
-            for (int i = 0; i < num_accidentals && flat_notes[num_accidentals - 1][i] != -1; i++) {
-                if (BTN_C == flat_notes[num_accidentals - 1][i]) {
-                    c_note -= 1;
-                    DEBUG_PRINTF("Applied flat to BTN_C in key %d, c_note=%d\n", key, c_note);
-                }
-            }
-            if (key == KEY_SIG_Fb && BTN_C == double_flat_notes[0][0]) {
-                c_note -= 2;
-                DEBUG_PRINTF("Applied double-flat to BTN_C in Fb, c_note=%d\n", c_note);
-            }
-        }
+        // Normalize c_note similarly
+        int8_t c_note_class = ((c_note % 12) + 12) % 12;
+        int8_t c_octave = c_note / 12;
+        c_note = c_note_class + c_octave * 12;
         // Adjust other buttons to be higher than BTN_C
         if (button != BTN_C && note <= c_note) {
             note += 12;
             DEBUG_PRINTF("Adjusted button %d in key %d to be higher than C (c_note=%d), new note=%d\n", 
                          button, key, c_note, note);
         }
-    }
-
-    // Apply frame shift
-    if (musical_index < shift) {
-        note += 12;
-        DEBUG_PRINTF("Applied frame shift to button %d, shift=%d, note=%d\n", button, shift, note);
     }
 
     DEBUG_PRINTF("get_root_button: key=%d, button=%d, note_class=%d, octave=%d, final_note=%d\n",
@@ -861,7 +834,7 @@ uint8_t calculate_static_scale_note(uint8_t string, uint8_t scalar_harp_selectio
   uint8_t scale_length = scale_lengths[scale_index];
   uint8_t octave = string / scale_length;
   uint8_t scale_degree = string % scale_length;
-  uint8_t scale_root = key_offsets[key_signature_selection];
+  uint8_t scale_root = keysig_offsets[key_signature_selection];
   
   if (scalar_harp_selection >= 5 && scalar_harp_selection <= 7) {
     // Relative minor: shift root down by 3 semitones (minor third)
@@ -1469,7 +1442,7 @@ void handlePresetChange(uint8_t up_transition, uint8_t down_transition, bool up_
   }
 
   // Execute preset change after delay if no simultaneous press occurred
-  if (pending_preset_change && single_press_timer > 150 && !up_state != !down_state) { // Ensure XOR to avoid both pressed
+  if (pending_preset_change && single_press_timer > 50 && !up_state != !down_state) { // Ensure XOR to avoid both pressed
     pending_preset_change = false;
     if (key_change_timer >= LOG_THROTTLE) {
       DEBUG_PRINTLN(pending_up ? "Switching to next preset" : "Switching to previous preset");
@@ -1675,7 +1648,7 @@ void handleKeyChangeMode(uint8_t up_transition, uint8_t down_transition, bool up
       current_sysex_parameters[35] = selected_key;
       updateHarpNotes();
       updateChordNotes();
-      flag_save_needed = true; // Uncomment to save key change to preset
+      flag_save_needed = false; // Save key change to preset
       set_led_color(key_hues[selected_key], 1.0, 1.0);
       key_flash_timer.priority(200);
       key_flash_timer.begin([] { key_flash_off(&key_flash_timer); }, 200000);
