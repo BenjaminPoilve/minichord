@@ -50,6 +50,16 @@ uint8_t min_seventh[7] = {0, 3, 10, 7, 1, 5, 8};
 uint8_t aug[7] = {0, 4, 8, 12, 2, 5, 9};
 uint8_t dim[7] = {0, 3, 6, 12, 2, 5, 9};
 uint8_t full_dim[7] = {0, 3, 6, 9, 2, 5, 12};
+
+//>>KEY CHANGE MODE VARIABLES<<
+bool key_change_mode = false; // Flag for key change mode
+elapsedMillis key_change_timer; // Timer for key change mode timeout and logging
+bool preset_inhibit = false; // Flag to inhibit preset changes
+const uint32_t KEY_CHANGE_TIMEOUT = 5000; // 5-second timeout for key change mode
+const uint32_t SIMULTANEOUS_WINDOW = 400; // 100ms window for Up+Down simultaneous press
+const uint32_t PRESET_INHIBIT_DELAY = 400; // 200ms preset inhibition after key change mode
+const uint32_t LOG_THROTTLE = 500; // 500ms throttle for logs
+
 uint8_t key_signature_selection = 0; // 0=C, 1=G, 2=D, 3=A, 4=E, 5=B, 6=F, 7=Bb, 8=Eb, 9=Ab, 10=Db, 11=Gb
 
 enum Button { // Button enum in hardware order: B, E, A, D, G, C, F
@@ -59,14 +69,6 @@ enum FrameShift { //Enums for chord frame shifts
   FRAMESHIFT_0, FRAMESHIFT_1,FRAMESHIFT_2,FRAMESHIFT_3,FRAMESHIFT_4,FRAMESHIFT_5,FRAMESHIFT_6
 };
 const int8_t base_notes[7] = {11, 4, 9, 2, 7, 0, 5}; // Base note offsets for buttons in key of C (relative to C4 = MIDI 60), in hardware order B, E, A, D, G, C, F
-//>>KEY CHANGE MODE VARIABLES<<
-bool key_change_mode = false; // Flag for key change mode
-elapsedMillis key_change_timer; // Timer for key change mode timeout and logging
-bool preset_inhibit = false; // Flag to inhibit preset changes
-const uint32_t KEY_CHANGE_TIMEOUT = 5000; // 5-second timeout for key change mode
-const uint32_t SIMULTANEOUS_WINDOW = 400; // 100ms window for Up+Down simultaneous press
-const uint32_t PRESET_INHIBIT_DELAY = 400; // 200ms preset inhibition after key change mode
-const uint32_t LOG_THROTTLE = 500; // 500ms throttle for logs
 
 // Expanded KeySig enum
 enum KeySig {
@@ -77,15 +79,14 @@ enum KeySig {
 };
 
  // Updated key signature arrays
-const int8_t keysig_offsets[21] = {
+const int8_t scale_root_offsets[21] = {
   0, 7, 2, 9, 4, 11, 5, // C, G, D, A, E, B, F
   10, 3, 8, 1, 6, // Bb, Eb, Ab, Db, Gb
   6, 1, 8, 3, 10, 5, 0, // F#=Gb, C#=Db, G#=Ab, D#=Eb, A#=Bb, E#=F, B#=C
   4, 11 // Fb=E, Cb=B
 }; 
 
-const int8_t key_offsets[21] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
+// Number of accidentals per keysig
 const int8_t key_signatures[21] = {
     0, 1, 2, 3, 4, 5, 1, // C, G, D, A, E, B, F
     2, 3, 4, 5, 6,       // Bb, Eb, Ab, Db, Gb
@@ -130,6 +131,8 @@ const int8_t double_sharp_notes[5][7] = {
 const int8_t double_flat_notes[1][1] = {
   {BTN_B}, // Fb: Bbb
 };
+
+//>>SCALAR HARP MODE<<
 uint8_t scalar_harp_selection = 0; // Selected mode: 0=Chord-based (default), 1=Major, 2=Major Pentatonic, 3=Minor Pentatonic, 4=Diminished 6th Scale, 5=Relative Natural Minor, 6=Relative Harmonic Minor, 7=Relative Minor Pentatonic
 // Scale intervals (semitones from root note), indexed from 1
 const uint8_t scale_intervals[8][8] = {
@@ -617,7 +620,7 @@ void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
 }
 // Function to compute MIDI note offset dynamically with circular frame shift
 int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
-    int8_t note = base_notes[button] + key_offsets[key];
+    int8_t note = base_notes[button];
     DEBUG_PRINTF("Base note for button %d in key %d: %d\n", button, key, note);
 int8_t num_accidentals = key_signatures[key];
 
@@ -692,7 +695,7 @@ int8_t num_accidentals = key_signatures[key];
 
     // Ensure BTN_C is the lowest-pitched when shift=0
     if (shift == 0) {
-        int8_t c_note = base_notes[BTN_C] + key_offsets[key];
+        int8_t c_note = base_notes[BTN_C];
         // Normalize c_note similarly
         int8_t c_note_class = ((c_note % 12) + 12) % 12;
         int8_t c_octave = c_note / 12;
@@ -834,7 +837,7 @@ uint8_t calculate_static_scale_note(uint8_t string, uint8_t scalar_harp_selectio
   uint8_t scale_length = scale_lengths[scale_index];
   uint8_t octave = string / scale_length;
   uint8_t scale_degree = string % scale_length;
-  uint8_t scale_root = keysig_offsets[key_signature_selection];
+  uint8_t scale_root = scale_root_offsets[key_signature_selection];
   
   if (scalar_harp_selection >= 5 && scalar_harp_selection <= 7) {
     // Relative minor: shift root down by 3 semitones (minor third)
