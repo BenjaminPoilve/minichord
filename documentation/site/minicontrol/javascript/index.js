@@ -374,3 +374,169 @@ function initializeSliderHoverEffects() {
 
 // Initialize hover effects when the page loads
 document.addEventListener('DOMContentLoaded', initializeSliderHoverEffects);
+
+//-->>RANDOM PRESET GENERATOR
+// Function to fetch and parse parameters.json and optionally load a random preset
+async function loadParameterRanges() {
+  try {
+    const [parametersResponse, presetsResponse] = await Promise.all([
+      fetch('./json/parameters.json'),
+      fetch('./json/shared_presets.json')
+    ]);
+    
+    const parametersData = await parametersResponse.json();
+    const presetsData = await presetsResponse.json();
+    
+    const parameterRanges = {};
+    
+    // Select a random preset
+    const randomPreset = presetsData.shared_presets[Math.floor(Math.random() * presetsData.shared_presets.length)];
+    console.log(`Using random preset as base: "${randomPreset.name}" by ${randomPreset.author}`);
+    
+    // Decode the preset values
+    const decodedPreset = atob(randomPreset.value).split(';').map(v => parseFloat(v));
+    
+    // Process all parameter categories
+    ['global_parameter', 'harp_parameter', 'chord_parameter'].forEach(category => {
+      parametersData[category].forEach(param => {
+        const presetValue = decodedPreset[param.sysex_adress];
+        let defaultValue = param.default_value;
+        
+        // Use preset value if available, otherwise fall back to original default
+        if (presetValue !== undefined && presetValue !== null && !isNaN(presetValue)) {
+          if (param.data_type === "float") {
+            defaultValue = presetValue / 100; // Convert back from stored format
+          } else {
+            defaultValue = presetValue;
+          }
+        }
+        
+        parameterRanges[param.sysex_adress] = {
+          min: param.min_value,
+          max: param.max_value,
+          type: param.data_type,
+          default: defaultValue,
+          original_default: param.default_value // Keep original default for reference
+        };
+      });
+    });
+    
+    return parameterRanges;
+  } catch (error) {
+    console.error('Error loading parameter ranges or presets:', error);
+    // Fallback to original behavior if preset loading fails
+    try {
+      const response = await fetch('./json/parameters.json');
+      const parametersData = await response.json();
+      
+      const parameterRanges = {};
+      
+      ['global_parameter', 'harp_parameter', 'chord_parameter'].forEach(category => {
+        parametersData[category].forEach(param => {
+          parameterRanges[param.sysex_adress] = {
+            min: param.min_value,
+            max: param.max_value,
+            type: param.data_type,
+            default: param.default_value,
+            original_default: param.default_value // Keep original default for reference
+
+          };
+        });
+      });
+      
+      return parameterRanges;
+    } catch (fallbackError) {
+      console.error('Error loading parameter ranges:', fallbackError);
+      return {};
+    }
+  }
+}
+
+// Generate random preset function
+// This is based on TerminalWaltz's code. Provided under GNU General Public License v3.0
+// License available here : https://github.com/terminalwaltz/minichord-random-generator/blob/main/LICENSE 
+// Normal distribution function using Box-Muller transform
+function normalRandom(mean, sigma) {
+  let u = 0, v = 0;
+  while(u === 0) u = Math.random(); // Converting [0,1) to (0,1)
+  while(v === 0) v = Math.random();
+  const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  return z * sigma + mean;
+}
+
+async function generateRandomPreset() {
+  if (!miniChordController.isConnected()) {
+    document.getElementById("information_zone").focus();
+    return;
+  }
+  
+  const parameterRanges = await loadParameterRanges();
+
+  const weirdness_factor = 0.10;
+
+  // Initialize preset array
+  const preset = Array(miniChordController.parameter_size).fill(0);
+
+  const fixedValues = [32,33,34,41,97,197];
+  
+  // Generate values for each parameter
+  Object.entries(parameterRanges).forEach(([index, params]) => {
+    const idx = parseInt(index);
+    
+    if (idx < 19 || fixedValues.includes(idx)) {
+      // For parameters below 19, keep the default values
+      preset[idx] = params.original_default;
+    } else {
+      // For parameters above 21, generate random values with normal distribution
+      const minVal = params.min;
+      const maxVal = params.max;
+      const center = params.default;;
+      const range = maxVal - minVal;
+      const sigma = range*weirdness_factor; // Use weirdness_factor to define sigma
+      
+      let value = normalRandom(center, sigma);
+      
+      // Clamp to valid range
+      if(value<0){
+        value = -value/4.0; // Ensure no negative values, but do not give excessive weight to the negative side
+      }
+      value = Math.max(minVal, Math.min(maxVal, value));
+      console.log(`Parameter ${idx}: Generated value ${value} (min: ${minVal}, max: ${maxVal})`);
+      
+      // Handle data type
+      if (params.type === "int") {
+        preset[idx] = Math.round(value);
+      } else { // float
+        preset[idx] = Math.round(value * 100) / 100;
+      }
+    }
+  });
+  
+  // Send the preset to the device
+  for (let i = 2; i < miniChordController.parameter_size; i++) {
+    if (preset[i] !== undefined) {
+      let valueToSend = preset[i];
+      
+      // Float values are already in the correct range (e.g., 0-100), 
+      // just multiply by the float_multiplier for transmission
+      if (parameterRanges[i] && parameterRanges[i].type === "float") {
+        valueToSend = Math.round(preset[i] * miniChordController.float_multiplier);
+      }
+      
+      miniChordController.sendParameter(i, Math.round(valueToSend));
+    }
+  }
+  
+  // Update the interface
+  miniChordController.sendParameter(0, 0);
+  
+  console.log("Random preset generated and applied!");
+}
+
+// Add event listener to the randomise button
+document.addEventListener('DOMContentLoaded', function() {
+  const randomiseBtn = document.getElementById('randomise_btn');
+  if (randomiseBtn) {
+    randomiseBtn.addEventListener('click', generateRandomPreset);
+  }
+});

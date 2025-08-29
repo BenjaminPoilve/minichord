@@ -55,6 +55,9 @@ Here is a list of available media related to the project (to be completed) :
 
 - a technical video about [the minicontrol system](https://www.youtube.com/watch?v=h-6qkhU_WoA&t=933s)
 - a short [audio demo of selected presets](https://minichord.com/ressources/audio_demo.mp3)
+- a [review of the project by Hainbach](https://www.youtube.com/watch?v=zQC3umGRGbM)
+- an [interview I gave for the launch of the project with SeeedStudio](https://www.youtube.com/watch?v=swZKdO71dLo)
+- a [folder of videos from minichord users](https://github.com/BenjaminPoilve/minichord/tree/main/documentation/docs/ressources/video) 
 
 ## Contact 
 

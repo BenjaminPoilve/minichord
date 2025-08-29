@@ -224,6 +224,8 @@ In the below table, we show the way chords are commonly written in a chord chart
 
 # **Custom presets**
 
+You can easily test and save custom presets by going to the [minishop](https://minichord.com/minicontrol/minishop.html) with a a compatible web browser. We recommend using Google Chrome on desktop, because of its support of WebMidi sysex commands.
+
 Making custom presets is a lot more involved, so it is to be reserved to more advanced users.
 However, if there is an issue, you can always restore the default presets, so feel free to experiment. 
 

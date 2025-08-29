@@ -42,7 +42,9 @@ with open('parameters.json') as f: # Reserved adresses: 0 for system command and
                         with a.div(id='status_zone', klass="unconnected"):
                             a.span(_t='●',id='dot')
                             a.span(_t='',id='status_value')
-                      
+                        with a.div():
+                            a('To test and load user-submitted presets, visit the ')
+                            a.a(href='./minishop.html', _t='minishop.')
                         with a.div(klass="line"):
                             a.h5(_t='saving:',klass="inactive")
                         with a.div(klass="line"):
@@ -98,7 +100,8 @@ with open('parameters.json') as f: # Reserved adresses: 0 for system command and
                                 a.p(_t="Name")
                             with a.div(klass=" bloc B2 M2 S4"):
                                 a.p(_t="Control")
-                            with a.div(klass=" bloc B1 M1 S1 right_aligned"):
+                            with a.div(klass=" bloc B1 M1 S1 right_aligned", style="position: relative;"):
+                                a.button(id="randomise_btn", title="Randomise all values", style="position: absolute; top: -25px; right: 0; background: none; border: none; font-size: 16px; cursor: pointer; z-index: 10; text-align: right;", _t="🎲")
                                 a.p(_t="Value")
                         with a.div(name=id_iterator,klass="line data_line"):
                             a.hr()
