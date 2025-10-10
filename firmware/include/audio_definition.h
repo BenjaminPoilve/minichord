@@ -408,7 +408,6 @@ AudioEffectPlateReverb   main_reverb;
 AudioMixer4              stereo_l_mixer;        
 AudioMixer4              stereo_r_mixer;   
 AudioOutputI2S           DAC_out;    
-AudioOutputUSB           USB_out;      
 
 AudioConnection          patchCord2000(string_filter_mixer, 0, string_multiplier, 0);
 AudioConnection          patchCord2001(string_gain, 0, string_multiplier, 1);
@@ -439,5 +438,4 @@ AudioConnection          patchCord2022(main_reverb, 1, stereo_l_mixer, 2);
 AudioConnection          patchCord2023(stereo_l_mixer, 0, DAC_out, 1);
 AudioConnection          patchCord2024(stereo_r_mixer, 0, DAC_out, 0);
 
-AudioConnection          patchCord2025(stereo_l_mixer, 0, USB_out, 1);
-AudioConnection          patchCord2026(stereo_r_mixer, 0, USB_out, 0);
+
