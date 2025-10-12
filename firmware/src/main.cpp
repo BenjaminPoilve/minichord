@@ -43,6 +43,8 @@ uint8_t maj_seventh[7] = {0, 4, 11, 7, 2, 5, 9};
 uint8_t min_seventh[7] = {0, 3, 10, 7, 1, 5, 8};
 uint8_t aug[7] = {0, 4, 8, 12, 2, 5, 9};
 uint8_t dim[7] = {0, 3, 6, 12, 2, 5, 9};
+uint8_t sus2[7] = {0, 2, 7, 12, 5, 9, 11};
+uint8_t sus4[7] = {0, 5, 7, 12, 2, 9, 11};
 uint8_t full_dim[7] = {0, 3, 6, 9, 2, 5, 12};
 uint8_t key_signature_selection = 0; // 0=C, 1=G, 2=D, 3=A, 4=E, 5=B, 6=F, 7=Bb, 8=Eb, 9=Ab, 10=Db, 11=Gb
 enum KeySig { // Enums for KeySigs
@@ -944,9 +946,9 @@ void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
   } else if (!button_maj && button_min && button_seventh) {
     current_chord = &min_seventh;
   } else if (button_maj && button_min && !button_seventh) {
-    current_chord = barry_harris_mode ? &full_dim : &dim;
+    current_chord = barry_harris_mode ? &full_dim : &maj_sixth;
   } else if (button_maj && button_min && button_seventh) {
-    current_chord = &aug;
+    current_chord = &sus4;
   }
 }
 
