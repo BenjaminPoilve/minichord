@@ -31,7 +31,10 @@ potentiometer mod_pot(POT_MOD_PIN);
 LittleFS_Program myfs; // to save the settings
 float color_led_blink_val = 1.0;
 bool led_blinking_flag = false;
-float led_attenuation = 0.0; 
+float led_attenuation = 0.0;
+
+// define note_group an array of integers
+int note_group[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // initialize all elements to 0
 //>>CHORD DEFINITION<<
 //for each chord, we first have the 4 notes of the chord, then decoration that might be used in specific modes
 uint8_t major[7] = {0, 4, 7, 12, 2, 5, 9};  // After the four notes of the chord (fundamental, third, fifth of seven, and octave of fifth, the next notes are the second fourth and sixth)
@@ -908,8 +911,13 @@ void handle_chords_button() {
 void handle_harp() {
   harp_sensor.update(harp_array);
   for (int i = 0; i < 12; i++) {
+    uint8_t group = logical_string(i);
     int value = harp_array[i].read_transition();
     if (value == 2) {
+      note_group[group]++;
+      if (note_group[group] > 1) {
+        return; // avoid retriggering the same note
+      }
       set_harp_voice_frequency(i, current_harp_notes[i]);
       AudioNoInterrupts();
       envelope_string_vibrato_lfo.noteOn();
@@ -924,6 +932,9 @@ void handle_harp() {
       usbMIDI.sendNoteOn(midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, 1, harp_port);
       harp_started_notes[i] = midi_base_note_transposed + current_harp_notes[i];
     } else if (value == 1) {
+      if (note_group[group] > 0) {
+        note_group[group]--;
+      }
       AudioNoInterrupts();
       string_enveloppe_array[i]->noteOff();
       string_transient_envelope_array[i]->noteOff();
