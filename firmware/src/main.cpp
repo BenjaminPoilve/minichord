@@ -294,6 +294,12 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
 void calculate_ws_array();
 void rythm_tick_function();
 
+// Map physical string index (0..11) to  groups of logical strings (6..9),
+// so three adjacent strings share the same value.
+static inline uint8_t logical_string(uint8_t physical) {
+  return (physical / 3) + 6; // i/2
+}
+
 //-->>LED HSV CALCULATION
 // function to calculate led RGB value, thank you SO
 void set_led_color(float h, float s, float v) {
@@ -861,7 +867,8 @@ void setup() {
   load_config(current_bank_number);
   // initializing the strings
   for (int i = 0; i < 12; i++) {
-    current_harp_notes[i] = calculate_note_harp(i, slash_chord, sharp_active);
+    uint8_t logical = logical_string(i);
+    current_harp_notes[i] = calculate_note_harp(logical, slash_chord, sharp_active);
   }
   //Checking the battery 
   LBO_flag.set(digitalRead(BATT_LBO_PIN));
@@ -986,13 +993,16 @@ void update_chord_notes() {
 void update_harp_notes() {
   if (button_pushed) {
     for (int i = 0; i < 12; i++) {
-      current_harp_notes[i] = calculate_note_harp(i, slash_chord, sharp_active);
+      uint8_t logical = logical_string(i); // pairs: 0,1->0 ; 2,3->1 ; ... ; 10,11->5
+      uint8_t new_note = calculate_note_harp(logical, slash_chord, sharp_active);
+      current_harp_notes[i] = new_note;
+
       if (change_held_strings && harp_started_notes[i] != 0) {
         usbMIDI.sendNoteOff(harp_started_notes[i], harp_release_velocity, 1, harp_port);
-        usbMIDI.sendNoteOn(midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, 1, harp_port);
-        harp_started_notes[i] = midi_base_note_transposed + current_harp_notes[i];
+        usbMIDI.sendNoteOn(midi_base_note_transposed + new_note, harp_attack_velocity, 1, harp_port);
+        harp_started_notes[i] = midi_base_note_transposed + new_note;
         if (string_enveloppe_array[i]->isSustain()) {
-          set_harp_voice_frequency(i, current_harp_notes[i]);
+          set_harp_voice_frequency(i, new_note);
         }
       }
     }
