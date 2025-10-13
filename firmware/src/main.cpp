@@ -11,8 +11,9 @@
 #include <harp.h>
 #include <potentiometer.h>
 
-//>>SOFWTARE VERSION 
-int version_ID=0007; //to be read 00.03, stored at adress 7 in memory
+//>>SOFTWARE VERSION 
+int version_ID=0007; //to be read 00.07, stored at address 7 in memory
+
 //>>BUTTON ARRAYS<<
 debouncer harp_array[12];
 debouncer chord_matrix_array[22];
@@ -518,19 +519,19 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
     // chord_voice_filter_array[i]->frequency(1*freq);
     AudioInterrupts();
   }else{
-    float note_freq = pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
-    AudioNoInterrupts();
-    chords_vibrato_lfo.frequency(chord_vibrato_base_freq + chord_vibrato_keytrack * current_chord_notes[0]);
-    chords_tremolo_lfo.frequency(chord_tremolo_base_freq + chord_tremolo_keytrack * current_chord_notes[0]);
-    // hord_vibrato_lfo_array[i]->frequency(chord_vibrato_base_freq);
-    // chord_tremolo_lfo_array[i]->frequency(chord_tremolo_base_freq);
-    chord_voice_filter_array[i]->frequency(note_freq * chord_filter_keytrack + chord_filter_base_freq);
-    chord_osc_1_array[i]->frequency(osc_1_freq_multiplier * note_freq);
-    chord_osc_2_array[i]->frequency(osc_2_freq_multiplier * note_freq);
-    chord_osc_3_array[i]->frequency(osc_3_freq_multiplier * note_freq);
+  float note_freq = pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
+  AudioNoInterrupts();
+  chords_vibrato_lfo.frequency(chord_vibrato_base_freq + chord_vibrato_keytrack * current_chord_notes[0]);
+  chords_tremolo_lfo.frequency(chord_tremolo_base_freq + chord_tremolo_keytrack * current_chord_notes[0]);
+  // hord_vibrato_lfo_array[i]->frequency(chord_vibrato_base_freq);
+  // chord_tremolo_lfo_array[i]->frequency(chord_tremolo_base_freq);
+  chord_voice_filter_array[i]->frequency(note_freq * chord_filter_keytrack + chord_filter_base_freq);
+  chord_osc_1_array[i]->frequency(osc_1_freq_multiplier * note_freq);
+  chord_osc_2_array[i]->frequency(osc_2_freq_multiplier * note_freq);
+  chord_osc_3_array[i]->frequency(osc_3_freq_multiplier * note_freq);
     chord_freq_dc_array[i]->amplitude(0,0);
-    // chord_voice_filter_array[i]->frequency(1*freq);
-    AudioInterrupts();
+  // chord_voice_filter_array[i]->frequency(1*freq);
+  AudioInterrupts();
   }
 
   if(chord_started_notes[i]!=0 && chord_started_notes[i]!=midi_base_note_transposed+current_note){
@@ -825,7 +826,7 @@ void setup() {
     chord_osc_2_array[i]->frequencyModulation(2);
     chord_osc_3_array[i]->frequencyModulation(2);
     //Now the max value of the vibrato is 0.25 for each component and we add 0.5 for pitch selection. With the multiplication by freqmodulation of 2, we maintain the rate we had before. 
-    chord_vibrato_mixer_array[i]->gain(1,0.5); 
+    chord_vibrato_mixer_array[i]->gain(1,0.5);
 
     chord_vibrato_dc_envelope_array[i]->sustain(0); //for the pitch bend no need for sustain
     transient_full_mix.gain(i, 1);
@@ -999,12 +1000,12 @@ void update_harp_notes() {
 
 void stop_chord_notes() {
   AudioNoInterrupts();
-  for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; i++) {
     if (chord_envelope_array[i]->isSustain()) {
-      chord_vibrato_envelope_array[i]->noteOff();
-      chord_vibrato_dc_envelope_array[i]->noteOff();
-      chord_envelope_array[i]->noteOff();
-      chord_envelope_filter_array[i]->noteOff();
+        chord_vibrato_envelope_array[i]->noteOff();
+        chord_vibrato_dc_envelope_array[i]->noteOff();
+        chord_envelope_array[i]->noteOff();
+        chord_envelope_filter_array[i]->noteOff();
       if (chord_started_notes[i] != 0) {
         usbMIDI.sendNoteOff(chord_started_notes[i], chord_release_velocity, 1, chord_port);
         chord_started_notes[i] = 0;
@@ -1015,12 +1016,12 @@ void stop_chord_notes() {
 }
 
 void handle_rhythm_mode() {
-  for (int i = 0; i < 4; i++) {
+      for (int i = 0; i < 4; i++) {
     if (note_off_timing[i] > note_pushed_duration && chord_envelope_array[i]->isSustain()) {
-      chord_vibrato_envelope_array[i]->noteOff();
-      chord_vibrato_dc_envelope_array[i]->noteOff();
-      chord_envelope_array[i]->noteOff();
-      chord_envelope_filter_array[i]->noteOff();
+          chord_vibrato_envelope_array[i]->noteOff();
+          chord_vibrato_dc_envelope_array[i]->noteOff();
+          chord_envelope_array[i]->noteOff();
+          chord_envelope_filter_array[i]->noteOff();
       if (chord_started_notes[i] != 0) {
         usbMIDI.sendNoteOff(chord_started_notes[i], chord_release_velocity, 1, chord_port);
         chord_started_notes[i] = 0;
@@ -1032,7 +1033,7 @@ void handle_rhythm_mode() {
 void handle_continuous_mode() {
   bool one_button_active = false;
   int line_accumulator[3] = {0, 0, 0};
-  for (int i = 1; i < 22; i++) {
+    for (int i = 1; i < 22; i++) {
     bool active = chord_matrix_array[i].read_value();
     one_button_active |= active;
     if (active) {
@@ -1132,12 +1133,12 @@ void trigger_chord_notes() {
     for (int i = 0; i < 4; i++) {
       note_timer[i].priority(253);
     }
-    note_timer[0].begin([] { play_single_note(0, &note_timer[0]); }, 10+chord_retrigger_release*1000);          // those allow for delayed triggering
-    note_timer[1].begin([] { play_single_note(1, &note_timer[1]); }, 10 +chord_retrigger_release*1000+ inter_string_delay + random(random_delay));
-    note_timer[2].begin([] { play_single_note(2, &note_timer[2]); }, 10 + chord_retrigger_release*1000+inter_string_delay * 2 + random(random_delay));
-    note_timer[3].begin([] { play_single_note(3, &note_timer[3]); }, 10 + chord_retrigger_release*1000+inter_string_delay * 3 + random(random_delay));
-    trigger_chord = false;
-  }
+        note_timer[0].begin([] { play_single_note(0, &note_timer[0]); }, 10+chord_retrigger_release*1000);          // those allow for delayed triggering
+        note_timer[1].begin([] { play_single_note(1, &note_timer[1]); }, 10 +chord_retrigger_release*1000+ inter_string_delay + random(random_delay));
+        note_timer[2].begin([] { play_single_note(2, &note_timer[2]); }, 10 + chord_retrigger_release*1000+inter_string_delay * 2 + random(random_delay));
+        note_timer[3].begin([] { play_single_note(3, &note_timer[3]); }, 10 + chord_retrigger_release*1000+inter_string_delay * 3 + random(random_delay));
+        trigger_chord = false;
+      }
   button_pushed = false;
 }
 
