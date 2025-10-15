@@ -1,5 +1,6 @@
 #include "audio_definition.h"
 #include "def.h"
+#include "chord_logic.h"
 #include <AT42QT2120.h>
 #include <Arduino.h>
 #include <Audio.h>
@@ -553,83 +554,18 @@ void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
   // string_vibrato_1.offset(0);
   AudioInterrupts();
 }
-// Function to compute MIDI note offset dynamically with circular frame shift
-int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) { 
-  int8_t note = base_notes[button]; // Start with base note in C (e.g., B = 11, E = 4, ..., F = 5)
-  // Apply circular frame shift: move notes C, D, E, F, G, A, B up an octave based on shift
-  // Map button to musical note index (C=0, D=1, E=2, F=3, G=4, A=5, B=6)
-  int8_t musical_index;
-  switch (button) {
-    case BTN_B: musical_index = 6; break; // B
-    case BTN_E: musical_index = 2; break; // E
-    case BTN_A: musical_index = 5; break; // A
-    case BTN_D: musical_index = 1; break; // D
-    case BTN_G: musical_index = 4; break; // G
-    case BTN_C: musical_index = 0; break; // C
-    case BTN_F: musical_index = 3; break; // F
-    default: musical_index = 0; // Should not happen
-  }
-  if (musical_index < shift) {
-    note += 12; // Move up one octave if the note is shifted "on top"
-  }
-  int8_t num_accidentals = key_signatures[key];   // Apply key signature (sharps or flats)
-  if (key <= KEY_SIG_B) { // Sharp keys (C, G, D, A, E, B)
-    for (int i = 0; i < num_accidentals; i++) {
-      if (button == sharp_notes[num_accidentals - 1][i]) {
-        note += 1; // Add sharp
-      }
-    }
-  } else { // Flat keys (F, Bb, Eb, Ab, Db, Gb)
-    for (int i = 0; i < num_accidentals; i++) {
-      if (button == flat_notes[num_accidentals - 1][i]) {
-        note -= 1; // Add flat
-      }
-    }
-  }
-
-  return note; //No need to constrain here
-}
+// get_root_button function moved to chord_logic.cpp
 // function to calculate the frequency of individual chord notes
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
-  uint8_t note = 0;
-  uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
-  if (slashed && level % 10 == note_slash_level) {
-    if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
-    } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
-    }
-  } else {
-    if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
-    } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
-    }
-  }
-  return note;
+  return calculate_note_chord(voice, (*current_chord), chord_shuffling_array[chord_shuffling_selection], 
+                             key_signature_selection, chord_frame_shift, fundamental, slash_value, 
+                             note_slash_level, slashed, sharp, flat_button_modifier);
 }
 // function to calculate the level of individual harp touch
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
-  if (!chromatic_harp_mode) {
-    uint8_t note = 0;
-    uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
-    if (slashed && level % 10 == note_slash_level) {
-      if (!flat_button_modifier) {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
-      } else {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
-      }
-    } else {
-      if (!flat_button_modifier) {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
-      } else {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
-      }
-    }
-    return note;
-  } else {
-    return string + 24; // Chromatic mode
-  }
+  return calculate_note_harp(string, (*current_chord), harp_shuffling_array[harp_shuffling_selection],
+                            key_signature_selection, chord_frame_shift, fundamental, slash_value,
+                            note_slash_level, slashed, sharp, flat_button_modifier, chromatic_harp_mode);
 }
 //-->>RYTHM MODE UTILITIES
 void rythm_tick_function() {
