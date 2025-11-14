@@ -30,6 +30,72 @@ Once in the venv, install the necessary packages by using `pip3 install -r requi
 
 Generation can then simply be done by running the `generate.py`script: `python3 generate.py`.
 
+### Testing
+
+The firmware includes unit tests for core logic functions that don't depend on hardware.
+
+#### Running Tests
+
+Tests use the PlatformIO native environment and Unity test framework:
+
+```bash
+cd firmware
+pio test -e native
+```
+
+Or run tests through VSCode with the PlatformIO extension.
+
+#### Test Structure
+
+Tests are located in the `test/` directory and organized by module:
+
+- `test_chord_logic/` - Tests for chord note calculations
+  - Validates chord construction (major, minor, 7th, etc.)
+  - Tests sharp/flat modifiers
+  - Validates slash chord functionality
+  - Tests different voicings and inversions
+  
+- `test_serialization/` - Tests for CSV serialization/deserialization
+  - Validates parameter storage format
+  - Tests edge cases (empty strings, negative values, bounds)
+
+#### Writing New Tests
+
+To add a new test:
+
+1. Create a new directory under `test/` with the name `test_<module_name>/`
+2. Add a test file `test_<module_name>.cpp`
+3. Include Unity test framework: `#include <unity.h>`
+4. Write test functions and register them in `main()`
+5. Run with `pio test -e native`
+
+Example test structure:
+```cpp
+#include <unity.h>
+
+void setUp(void) {
+    // Initialize before each test
+}
+
+void tearDown(void) {
+    // Clean up after each test
+}
+
+void test_my_function(void) {
+    TEST_ASSERT_EQUAL(expected, actual);
+}
+
+int main(int argc, char **argv) {
+    UNITY_BEGIN();
+    RUN_TEST(test_my_function);
+    return UNITY_END();
+}
+```
+
+#### Continuous Integration
+
+Tests run automatically on GitHub Actions for every push and pull request affecting the firmware. See `.github/workflows/firmware-tests.yml` for the CI configuration.
+
 ### Caveat 
 
 To get the midi interface to display the right number of cables, the `usb_desc.h` file in the `~/.platformio/packages/framework-arduinoteensy/cores/teensy4` folder needs to be modified to the following:
