@@ -47,7 +47,7 @@ hardware/PCB/touch zones/keymaster PCB/*
 !hardware/PCB/touch zones/keymaster PCB/gerber
 !hardware/PCB/touch zones/keymaster PCB/production_files
 hardware/PCB/touch zones/Shenzhen keymaster PCB/*
-
+hardware/PCB/touch zones/touch kicad template/touch kicad template-backups/*
 #Useless things for the doc
 documentation/site/js
 documentation/site/search
