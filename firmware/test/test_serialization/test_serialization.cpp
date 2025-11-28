@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <string.h>
+#include <stdlib.h>
 
 void setUp(void) {
 }
