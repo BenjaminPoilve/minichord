@@ -18,6 +18,12 @@ void apply_audio_parameter(int adress, int value) {
       case 30:
         transpose_semitones=value;midi_base_note_transposed=midi_base_note+transpose_semitones;
         break;
+      case 106:
+        chord_channel=max(value,1);
+        break;
+      case 107:
+        harp_channel=max(value,1);
+        break;
       case 31:
         flat_button_modifier=value;
         break;
