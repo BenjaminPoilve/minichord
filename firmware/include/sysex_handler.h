@@ -24,6 +24,9 @@ void apply_audio_parameter(int adress, int value) {
       case 107:
         harp_channel=max(value,1);
         break;
+      case 108:
+        harp_port=1-value;
+        break;
       case 31:
         flat_button_modifier=value;
         break;

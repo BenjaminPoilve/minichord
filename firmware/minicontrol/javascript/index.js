@@ -477,7 +477,7 @@ async function generateRandomPreset() {
   // Initialize preset array
   const preset = Array(miniChordController.parameter_size).fill(0);
 
-  const fixedValues = [32,33,34,35,41,97,106,107,197];
+  const fixedValues = [32,33,34,35,41,97,106,107,108,197];
   
   // Generate values for each parameter
   Object.entries(parameterRanges).forEach(([index, params]) => {
