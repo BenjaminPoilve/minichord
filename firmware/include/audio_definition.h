@@ -164,7 +164,6 @@ AudioEffectMultiply      string_multiply; //xy=2797.1000061035156,1277.999992370
 AudioMixer4              chords_effect_mix; //xy=2928.1000061035156,1662.9999923706055
 AudioFilterStateVariable string_filter;  //xy=2995.1000061035156,1311.9999923706055
 AudioEffectDelay         delay_chords;   //xy=3078.1000061035156,1534.9999923706055
-AudioInputI2S            i2s1;           //xy=3183.1000061035156,1062.9999923706055
 AudioMixer4              string_filter_mixer; //xy=3200.1000061035156,1312.9999923706055
 AudioFilterStateVariable chords_main_filter; //xy=3246.1000061035156,1595.9999923706055
 AudioMixer4              chords_main_filter_mixer; //xy=3529.1000061035156,1610.9999923706055

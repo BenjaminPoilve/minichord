@@ -44,8 +44,8 @@ To get the midi interface to display the right number of cables, the `usb_desc.h
   #define PRODUCT_NAME		{'m','i','n','i','c','h','o','r','d'}
   #define PRODUCT_NAME_LEN	9
   #define EP0_SIZE		64
-  #define NUM_ENDPOINTS         8
-  #define NUM_INTERFACE		6
+  #define NUM_ENDPOINTS         5
+  #define NUM_INTERFACE		5
   #define CDC_IAD_DESCRIPTOR	1
   #define CDC_STATUS_INTERFACE	0
   #define CDC_DATA_INTERFACE	1	// Serial
@@ -65,15 +65,12 @@ To get the midi interface to display the right number of cables, the `usb_desc.h
   #define MIDI_RX_ENDPOINT      4
   #define MIDI_RX_SIZE_12       64
   #define MIDI_RX_SIZE_480      512
-  #define AUDIO_INTERFACE	3	// Audio (uses 3 consecutive interfaces)
+  #define AUDIO_INTERFACE	2	// Audio (uses 2 consecutive interfaces)
   #define AUDIO_TX_ENDPOINT     5
   #define AUDIO_TX_SIZE         180
-  #define AUDIO_RX_ENDPOINT     5
-  #define AUDIO_RX_SIZE         180
-  #define AUDIO_SYNC_ENDPOINT	6
   #define ENDPOINT2_CONFIG	ENDPOINT_RECEIVE_UNUSED + ENDPOINT_TRANSMIT_INTERRUPT
   #define ENDPOINT3_CONFIG	ENDPOINT_RECEIVE_BULK + ENDPOINT_TRANSMIT_BULK
   #define ENDPOINT4_CONFIG	ENDPOINT_RECEIVE_BULK + ENDPOINT_TRANSMIT_BULK
-  #define ENDPOINT5_CONFIG	ENDPOINT_RECEIVE_ISOCHRONOUS + ENDPOINT_TRANSMIT_ISOCHRONOUS
-  #define ENDPOINT6_CONFIG	ENDPOINT_RECEIVE_UNUSED + ENDPOINT_TRANSMIT_ISOCHRONOUS
+  #define ENDPOINT5_CONFIG	ENDPOINT_RECEIVE_UNUSED + ENDPOINT_TRANSMIT_ISOCHRONOUS
+  #define ENDPOINT6_CONFIG	ENDPOINT_RECEIVE_UNUSED + ENDPOINT_TRANSMIT_UNUSED
 ```
