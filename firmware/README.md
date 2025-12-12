@@ -34,6 +34,23 @@ Generation can then simply be done by running the `generate.py`script: `python3 
 
 To get the midi interface to display the right number of cables, [framework-arduinoteensy](https://registry.platformio.org/tools/platformio/framework-arduinoteensy) has been prepared as a submodule in this project. You can find the repository here: [PaulStoffregen/cores](https://github.com/PaulStoffregen/cores). The submodule repository is not initialized by default. To initialize submodules of this repository you need to run:
 
+Linux/macOS
+
 ```
+find ~/.platformio/packages/framework-arduinoteensy -mindepth 1 -maxdepth 1 ! -name cores -exec cp -a {} `git rev-parse --show-toplevel`/firmware/packages/framework-arduinoteensy/ \;
+
 git submodule update --init --recursive
+```
+
+Also you need to uncomment line #19 in `firmware/platformio.ini`.  
+replace
+
+```
+# platform_packages = framework-arduinoteensy@file://./packages/framework-arduinoteensy
+```
+
+with
+
+```
+platform_packages = framework-arduinoteensy@file://./packages/framework-arduinoteensy
 ```
