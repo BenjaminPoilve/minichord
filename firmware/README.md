@@ -42,15 +42,12 @@ find ~/.platformio/packages/framework-arduinoteensy -mindepth 1 -maxdepth 1 ! -n
 git submodule update --init --recursive
 ```
 
-Also you need to uncomment line #19 in `firmware/platformio.ini`.  
-replace
+Windows (powershell)
 
 ```
-# platform_packages = framework-arduinoteensy@file://./packages/framework-arduinoteensy
-```
+Get-ChildItem "$env:USERPROFILE\.platformio\packages\framework-arduinoteensy" |
+  Where-Object Name -ne 'cores' |
+  Copy-Item -Destination (Join-Path (git rev-parse --show-toplevel) 'firmware\packages\framework-arduinoteensy') -Recurse
 
-with
-
-```
-platform_packages = framework-arduinoteensy@file://./packages/framework-arduinoteensy
+git submodule update --init --recursive
 ```
