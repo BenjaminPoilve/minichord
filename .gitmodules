@@ -1,0 +1,3 @@
+[submodule "firmware/packages/framework-arduinoteensy"]
+	path = firmware/packages/framework-arduinoteensy
+	url = git@github.com:PaulStoffregen/cores.git
