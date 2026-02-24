@@ -1,4 +1,3 @@
-> **Note: While the minichord kits are not yet for sale, they might be soon. To be informed about the project and the release date of those kits, please subscribe to [the newsletter](https://buttondown.com/BenjaminPoilve).**
 
 
 # **Assembly notes**
