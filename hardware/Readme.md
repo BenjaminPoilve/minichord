@@ -6,9 +6,8 @@ This folder contains the necessary ressources to build a minichord.
 
 * [Main PCB schematics](https://github.com/BenjaminPoilve/MiniChord/blob/main/hardware/PCB/miniChord_main_PCB/MiniChord.pdf)
 * [Main PCB Gerber file](https://github.com/BenjaminPoilve/MiniChord/tree/main/hardware/PCB/miniChord_main_PCB/gerber)
-* [Touch zone PCB schematics](https://github.com/BenjaminPoilve/MiniChord/blob/main/hardware/PCB/touch%20zones/default%20touch%20PCB/touch_zone.pdf)
-* [Touch zone PCB Gerber file](https://github.com/BenjaminPoilve/MiniChord/blob/main/hardware/PCB/touch%20zones/default%20touch%20PCB/gerber)
-* [Template for custom touch zone](https://github.com/BenjaminPoilve/MiniChord/blob/main/hardware/PCB/touch%20zones/touch%20kicad%20template)
+* [Touch zone PCB Gerber file](https://github.com/BenjaminPoilve/minichord/tree/main/hardware/PCB/touch%20zones/default%20touch%20PCB/gerber)
+* [Template for custom touch zone](https://github.com/BenjaminPoilve/minichord/tree/main/hardware/PCB/touch%20zones/touch%20kicad%20template)
 
 ### BOM
 
@@ -16,8 +15,8 @@ This folder contains the necessary ressources to build a minichord.
 
 ### 3D files
 
-* [Bottom shell](https://github.com/BenjaminPoilve/MiniChord/blob/main/hardware/3D/rendering/render_v9_bottom.scad.stl) 
-* [Top shell](https://github.com/BenjaminPoilve/MiniChord/blob/main/hardware/3D/rendering/render_v9_top1_5.scad.stl)
+* [Bottom shell](https://github.com/BenjaminPoilve/minichord/blob/main/hardware/3D/rendering/render_v11_bottom.step) 
+* [Top shell](https://github.com/BenjaminPoilve/minichord/blob/main/hardware/3D/rendering/render_v11_top.step)
 
 ### 2D files 
 
