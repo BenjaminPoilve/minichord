@@ -36,7 +36,7 @@ Quantity,Part,Type,Link
 1,JST PH 2mm 2pin male angled,TH component,-
 1,503450 1000mAh battery,other hardware,-
 3,Potentiometer,TH component,"Mouser (note: if we could source a RV09AF-40-15K-B100K instead, it would be better)"
-2,Tactile switch 6x6mm,TH component,Mouser
+4,Tactile switch 6x6mm,TH component,Mouser
 21,Tactile switch 12x12mm,TH component,Mouser
 2,Touch header female,TH component,Mouser
 2,Touch header male,TH component,Mouser
