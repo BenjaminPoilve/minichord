@@ -90,7 +90,6 @@ int8_t current_line = -1;      // holds the current selected line of button, -1 
 int8_t fundamental = 0;        // holds the value of the last selected line, hence the fundamental
 uint8_t slash_value = 0;       // stores the "slash", ie when a different alternative note is selected
 volatile bool midi_flush_needed = false; // set by chord ISR, cleared by loop() after send_now
-bool first_play_panic_done = false;    // cleared on first chord OR harp press to purge host stale notes
 bool slash_chord = false;      // flag for when a slashed chord is currently activated
 bool button_pushed = false;    // flag for when any button has been pushed during the main loop
 bool trigger_chord = false;    // flag to trigger the enveloppe of the chord
@@ -279,7 +278,7 @@ uint8_t chord_attack_velocity=127;
 uint8_t chord_release_velocity=20;
 uint8_t chord_started_notes[4]={0,0,0,0};                   
 uint8_t harp_port=0;
-uint8_t harp_channel=2;
+uint8_t harp_channel=1;
 uint8_t harp_attack_velocity=127; 
 uint8_t harp_release_velocity=20;
 uint8_t harp_started_notes[12]={0,0,0,0,0,0,0,0,0,0,0,0};    
@@ -909,14 +908,6 @@ void handle_chords_button() {
 }
 
 void handle_harp() {
-  if (!first_play_panic_done) {
-    for (int n = 36; n < 96; n++) {
-      usbMIDI.sendNoteOff(n, 0, chord_channel, chord_port);
-      usbMIDI.sendNoteOff(n, 0, harp_channel,  harp_port);
-    }
-    usbMIDI.send_now();
-    first_play_panic_done = true;
-  }
   harp_sensor.update(harp_array);
   for (int i = 0; i < 12; i++) {
     int value = harp_array[i].read_transition();
@@ -1161,14 +1152,6 @@ void handle_low_battery() {
 
 void trigger_chord_notes() {
   if ((trigger_chord || (button_pushed && retrigger_chord)) && !rythm_mode) {
-    if (!first_play_panic_done) {
-      for (int n = 36; n < 96; n++) {
-        usbMIDI.sendNoteOff(n, 0, chord_channel, chord_port);
-        usbMIDI.sendNoteOff(n, 0, harp_channel,  harp_port);
-      }
-      usbMIDI.send_now();
-      first_play_panic_done = true;
-    }
     Serial.println("Triggering chord notes");
     for (int i = 0; i < 4; i++) {
       note_timer[i].priority(253);
