@@ -42,6 +42,15 @@ In particular it contains:
 - the full [PlatformIO project](https://github.com/BenjaminPoilve/MiniChord/tree/main/firmware)
 - the [minicontrol software](https://github.com/BenjaminPoilve/MiniChord/tree/main/firmware/minicontrol)
 
+
+## Alternative control platforms
+
+Minichord users have developed some very cool alternative platforms that interface with the minichord. 
+- the [minichord Sound Lab](https://minichorddrawn.github.io/minichord-soundlab/#play)
+- [Keyandcableco's minicontrol](https://keyandcableco.github.io/minicontrol/)
+
+Make sure to test them as they offer many alternative features!
+
 ## Media 
 
 Here is a list of available media related to the project (to be completed) :

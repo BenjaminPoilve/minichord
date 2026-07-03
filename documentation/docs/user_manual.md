@@ -276,6 +276,13 @@ It also allows you to share your presets and to load presets made by other users
 
 >If you have a preset that you wish to share with all minichord users, please send the preset string with a short description and the name of your preset to [presets@minichord.com](mailto:presets@minichord.com).
 
+## Alternative control platforms
+
+Minichord users have developed some very cool alternative platforms that interface with the minichord and allow to create custom presets. 
+- the [minichord Sound Lab](https://minichorddrawn.github.io/minichord-soundlab/#play)
+- [Keyandcableco's minicontrol](https://keyandcableco.github.io/minicontrol/)
+
+Make sure to test them as they offer many alternative features!
 
 ## Synthesis schematic
 
