@@ -1310,6 +1310,3 @@ void loop() {
   // Handle harp functions
   handle_harp();
 }
-
-
-pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
