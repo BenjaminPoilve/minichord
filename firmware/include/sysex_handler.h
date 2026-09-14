@@ -451,14 +451,10 @@ void apply_audio_parameter(int adress, int value) {
         }
         break;
       case 143:
-        for (int i=0;i<4;i++){
-          chord_filter_base_freq=value;
-        }
+        chord_filter_base_freq=value; refresh_chord_filter();
         break;
       case 144:
-        for (int i=0;i<4;i++){
-          chord_filter_keytrack=value/100.0;
-        }
+        chord_filter_keytrack=value/100.0; refresh_chord_filter();
         break;
       case 145:
         for (int i=0;i<4;i++){
