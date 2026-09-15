@@ -39,6 +39,9 @@ void apply_audio_parameter(int adress, int value) {
       case 35:
         key_signature_selection=value;
         break;
+      case 37:
+        chord_inversion=value; for (int i = 0; i < 7; i++) { current_chord_notes[i]=calculate_note_chord(i,slash_chord,sharp_active); } for (int i = 0; i < 4; i++) { if (chord_envelope_array[i]->isActive()) { set_chord_voice_frequency(i, current_chord_notes[i]); } }
+        break;
       case 24:
         main_reverb.size(value/100.0);
         break;
