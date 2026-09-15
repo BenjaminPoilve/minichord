@@ -1105,7 +1105,9 @@ void load_config(int bank_number) {
   for (int i = 1; i < parameter_size; i++) {
     apply_audio_parameter(i, current_sysex_parameters[i]);
   }
-  control_command(0, 0); // tell itself to update the remote controller if present
+  if (sysex_controler_connected) {
+    control_command(0, 0); // push state to a connected remote controller
+  }
   chord_pot.force_update();
   harp_pot.force_update();
   mod_pot.force_update();
@@ -1480,7 +1482,7 @@ void loop() {
     processMIDI();
   }
   // Check sysex controller connection
-  if (sysex_controler_connected && (USB1_PORTSC1, 7)) {
+  if (sysex_controler_connected && bitRead(USB1_PORTSC1, 7)) {
     sysex_controler_connected = false;
   }
 
