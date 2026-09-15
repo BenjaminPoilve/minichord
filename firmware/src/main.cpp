@@ -355,6 +355,10 @@ void recalculate_timer();
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp);
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp);
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
+void refresh_chord_filter();
+// the note frequency each chord voice is currently sounding, kept so the filter
+// corner can be recomputed for a voice without touching anything else about it
+float chord_voice_note_freq[4] = {0, 0, 0, 0};
 void calculate_ws_array();
 void rythm_tick_function();
 
@@ -571,6 +575,24 @@ void calculate_ws_array() {
   }
 }
 // setting the pad_frequency
+/* Recompute only the filter corner for voices that are sounding.
+ *
+ * Deliberately NOT set_chord_voice_frequency: that also retunes three
+ * oscillators, restarts the glide ramp, and sends a MIDI note off and on when
+ * the voice's note has moved. Called on every step of a knob sweep, that would
+ * restart the portamento continuously and spray note messages down the wire.
+ * This touches the filter and nothing else.
+ */
+void refresh_chord_filter() {
+  AudioNoInterrupts();
+  for (int i = 0; i < 4; i++) {
+    if (chord_envelope_array[i]->isActive()) {
+      chord_voice_filter_array[i]->frequency(chord_voice_note_freq[i] * chord_filter_keytrack + chord_filter_base_freq);
+    }
+  }
+  AudioInterrupts();
+}
+
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
   float note_freq = pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
   if(glide_length>0){
@@ -583,6 +605,7 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
     float middle_freq=c_frequency*pow(2,middle_note/12.0);
 
     AudioNoInterrupts();
+    chord_voice_note_freq[i] = note_freq;
     chords_vibrato_lfo.frequency(chord_vibrato_base_freq + chord_vibrato_keytrack * current_chord_notes[0]);
     chords_tremolo_lfo.frequency(chord_tremolo_base_freq + chord_tremolo_keytrack * current_chord_notes[0]);
     // hord_vibrato_lfo_array[i]->frequency(chord_vibrato_base_freq);
@@ -597,6 +620,7 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
   }else{
     float note_freq = pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
     AudioNoInterrupts();
+    chord_voice_note_freq[i] = note_freq;
     chords_vibrato_lfo.frequency(chord_vibrato_base_freq + chord_vibrato_keytrack * current_chord_notes[0]);
     chords_tremolo_lfo.frequency(chord_tremolo_base_freq + chord_tremolo_keytrack * current_chord_notes[0]);
     // hord_vibrato_lfo_array[i]->frequency(chord_vibrato_base_freq);
