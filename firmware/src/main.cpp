@@ -76,6 +76,53 @@ const int8_t flat_notes[6][6] = { // Notes affected by flats in each key, in har
 };
 
 float c_frequency = 130.81;                      // for C3
+
+//>>SCALAR HARP MODE<<
+// 0 follows the chord as before. 1-7 are fixed scales rooted on the key. 8 and 9
+// pick a scale to suit whichever chord is currently held, 9 being the pentatonic
+// version of 8.
+uint8_t scalar_harp_selection = 0;
+
+// Tonic pitch class for each key signature, in the order of the KeySig enum
+const int8_t scale_root_offsets[12] = {
+  0, 7, 2, 9, 4, 11, // C, G, D, A, E, B
+  5, 10, 3, 8, 1, 6  // F, Bb, Eb, Ab, Db, Gb
+};
+
+// Fixed scales for modes 1-7, semitones from the root
+const uint8_t scale_intervals[7][8] = {
+  {0, 2, 4, 5, 7, 9, 11, 0}, // 1: Major (Ionian)
+  {0, 2, 4, 7, 9, 0, 0, 0},  // 2: Major Pentatonic
+  {0, 2, 3, 7, 10, 0, 0, 0}, // 3: Minor Pentatonic
+  {0, 2, 4, 5, 7, 8, 9, 11}, // 4: Diminished 6th
+  {0, 2, 3, 5, 7, 8, 10, 0}, // 5: Relative Natural Minor
+  {0, 2, 3, 5, 7, 8, 11, 0}, // 6: Relative Harmonic Minor
+  {0, 2, 3, 7, 10, 0, 0, 0}  // 7: Relative Minor Pentatonic
+};
+const uint8_t scale_lengths[7] = {7, 5, 5, 8, 7, 7, 5};
+
+// Scales chosen per chord type for modes 8 and 9
+const uint8_t chord_scale_intervals[15][8] = {
+  {0, 2, 4, 7, 9, 0, 0, 0},  //  0: Major Pentatonic, major chord
+  {0, 2, 4, 6, 9, 0, 0, 0},  //  1: Lydian Pentatonic, major seventh
+  {0, 3, 5, 7, 10, 0, 0, 0}, //  2: Minor Pentatonic, minor
+  {0, 2, 4, 7, 10, 0, 0, 0}, //  3: Mixolydian Pentatonic, dominant seventh
+  {0, 3, 5, 7, 9, 0, 0, 0},  //  4: Dorian Pentatonic, minor seventh
+  {0, 1, 3, 4, 6, 7, 9, 10}, //  5: Octatonic, diminished
+  {0, 2, 4, 6, 8, 10, 0, 0}, //  6: Whole Tone, augmented
+  {0, 2, 4, 5, 7, 8, 9, 11}, //  7: Diminished 6th, major sixth
+  {0, 2, 3, 5, 7, 8, 9, 11}, //  8: Diminished 6th Minor, minor sixth
+  {0, 2, 3, 4, 6, 7, 9, 11}, //  9: Offset Diminished 6th, full diminished
+  {0, 2, 4, 5, 7, 9, 11, 0}, // 10: Ionian, major
+  {0, 2, 3, 5, 7, 9, 10, 0}, // 11: Dorian, minor seventh
+  {0, 2, 4, 6, 7, 9, 11, 0}, // 12: Lydian, major seventh
+  {0, 2, 4, 5, 7, 9, 10, 0}, // 13: Mixolydian, dominant seventh
+  {0, 2, 3, 5, 7, 8, 10, 0}  // 14: Aeolian, minor
+};
+const uint8_t chord_scale_lengths[15] = {5, 5, 5, 5, 5, 8, 6, 8, 8, 8, 7, 7, 7, 7, 7};
+
+
+
 uint8_t chord_octave_change=4;
 uint8_t harp_octave_change=4;
 uint8_t chord_frame_shift=0;
@@ -757,28 +804,111 @@ uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
   }
   return note;
 }
-// function to calculate the level of individual harp touch
+
+
+enum ChordType {
+  CHORD_MAJOR, CHORD_MINOR, CHORD_SEVENTH, CHORD_MAJ_SEVENTH, CHORD_MIN_SEVENTH,
+  CHORD_DIM, CHORD_AUG, CHORD_MAJ_SIXTH, CHORD_MIN_SIXTH, CHORD_FULL_DIM, CHORD_UNKNOWN
+};
+
+ChordType get_chord_type(uint8_t (*chord)[7]) {
+  if (chord == &major)       return CHORD_MAJOR;
+  if (chord == &minor)       return CHORD_MINOR;
+  if (chord == &seventh)     return CHORD_SEVENTH;
+  if (chord == &maj_seventh) return CHORD_MAJ_SEVENTH;
+  if (chord == &min_seventh) return CHORD_MIN_SEVENTH;
+  if (chord == &dim)         return CHORD_DIM;
+  if (chord == &aug)         return CHORD_AUG;
+  if (chord == &maj_sixth)   return CHORD_MAJ_SIXTH;
+  if (chord == &min_sixth)   return CHORD_MIN_SIXTH;
+  if (chord == &full_dim)    return CHORD_FULL_DIM;
+  return CHORD_UNKNOWN;
+}
+
+// Which scale suits the chord currently held. Pentatonic variants are used in
+// mode 9; the diminished sixth scales suit the sixth and diminished chords in
+// both modes.
+//
+// This does not need to test barry_harris_mode. handle_chord_type() already
+// substitutes maj_sixth, min_sixth and full_dim for major, minor and dim when
+// that mode is on, so the chord arriving here has the Barry Harris harmonisation
+// baked in and maps to the diminished sixth scales by type alone.
+uint8_t get_chord_scale_index(ChordType chord_type, bool use_pentatonic) {
+  switch (chord_type) {
+    case CHORD_MAJOR:        return use_pentatonic ? 0 : 10;
+    case CHORD_MAJ_SEVENTH:  return use_pentatonic ? 1 : 12;
+    case CHORD_MINOR:        return use_pentatonic ? 2 : 14;
+    case CHORD_SEVENTH:      return use_pentatonic ? 3 : 13;
+    case CHORD_MIN_SEVENTH:  return use_pentatonic ? 4 : 11;
+    case CHORD_DIM:          return 5;
+    case CHORD_AUG:          return 6;
+    case CHORD_MAJ_SIXTH:    return 7;
+    case CHORD_MIN_SIXTH:    return 8;
+    case CHORD_FULL_DIM:     return 9;
+    default:                 return use_pentatonic ? 0 : 10;
+  }
+}
+
+// Modes 1-7: a fixed scale rooted on the key signature, ignoring the chord.
+uint8_t calculate_static_scale_note(uint8_t string, uint8_t mode, uint8_t key) {
+  uint8_t scale_index = mode - 1;
+  uint8_t scale_length = scale_lengths[scale_index];
+  uint8_t octave = string / scale_length;
+  uint8_t scale_degree = string % scale_length;
+  uint8_t scale_root = scale_root_offsets[key];
+  if (mode >= 5 && mode <= 7) {
+    scale_root = (scale_root + 12 - 3) % 12; // relative minor, a minor third down
+  }
+  return scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12) + 12;
+}
+
+// Modes 8 and 9: a scale chosen to suit the chord being held, rooted on it.
+uint8_t calculate_chord_specific_note(uint8_t string, uint8_t root_note, int8_t sharp_offset,
+                                      uint8_t (*chord)[7], bool use_pentatonic) {
+  uint8_t scale_index = get_chord_scale_index(get_chord_type(chord), use_pentatonic);
+  uint8_t scale_length = chord_scale_lengths[scale_index];
+  uint8_t octave = string / scale_length;
+  uint8_t scale_degree = string % scale_length;
+  return root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * 12);
+}
+
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
-  if (!chromatic_harp_mode) {
-    uint8_t note = 0;
-    uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
-    if (slashed && level % 10 == note_slash_level) {
-      if (!flat_button_modifier) {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
-      } else {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
-      }
-    } else {
-      if (!flat_button_modifier) {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
-      } else {
-        note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
-      }
-    }
-    return note;
-  } else {
+  if (chromatic_harp_mode) {
     return string + 24; // Chromatic mode
   }
+
+  // Modes 1-7 ignore the chord entirely and run a fixed scale from the key
+  if (scalar_harp_selection >= 1 && scalar_harp_selection <= 7) {
+    return calculate_static_scale_note(string, scalar_harp_selection, key_signature_selection);
+  }
+
+  // Modes 8 and 9 keep the chord's root but choose the scale to suit its type
+  if (scalar_harp_selection == 8 || scalar_harp_selection == 9) {
+    uint8_t root_note = slashed
+      ? get_root_button(key_signature_selection, chord_frame_shift, slash_value)
+      : get_root_button(key_signature_selection, chord_frame_shift, fundamental);
+    int8_t sharp_offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
+    return calculate_chord_specific_note(string, root_note, sharp_offset, current_chord,
+                                         scalar_harp_selection == 9);
+  }
+
+  // Mode 0, the existing chord-following behaviour, unchanged
+  uint8_t note = 0;
+  uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
+  if (slashed && level % 10 == note_slash_level) {
+    if (!flat_button_modifier) {
+      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
+    } else {
+      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
+    }
+  } else {
+    if (!flat_button_modifier) {
+      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
+    } else {
+      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
+    }
+  }
+  return note;
 }
 //-->>RYTHM MODE UTILITIES
 void rythm_tick_function() {
