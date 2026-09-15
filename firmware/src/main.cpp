@@ -452,6 +452,15 @@ void control_command(uint8_t command, uint8_t parameter) {
     current_bank_number = parameter;
     save_config(parameter, true);
     break;
+  case 4: // loading a bank, so a remote can read every preset in turn
+    if (parameter < preset_number) {
+      Serial.print("Loading bank: ");
+      Serial.println(parameter);
+      current_bank_number = parameter;
+      load_config(current_bank_number);
+      set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
+    }
+    break;
 
   default:
     break;
