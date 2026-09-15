@@ -565,10 +565,10 @@ void calculate_ws_array() {
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
   float note_freq = pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
   if(glide_length>0){
-        //ok so first we need to set the "middle note". Keep in mind that the signal will be +/-1 and will go +/- 1 octave
+        //ok so first we need to set the "middle note". Keep in mind that the signal will be +/-1 and will go +/- 2 octaves (frequencyModulation(2), hence the /24.0 below)
     //let's do a trick to select a middle note: get the level (relative to the C) and the note and do a modulo 
     int note_level=12*chord_octave_change-3*12+current_note+transpose_semitones;
-    int base_octave =chord_octave_change-2+(chord_shuffling_array[chord_shuffling_selection][i])/12;
+    int base_octave =chord_octave_change-2+(chord_shuffling_array[chord_shuffling_selection][i])/10;
     int middle_note=base_octave*12+transpose_semitones; 
     int note_delta=note_level-middle_note;
     float middle_freq=c_frequency*pow(2,middle_note/12.0);
