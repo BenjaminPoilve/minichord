@@ -11,7 +11,7 @@
 #include <harp.h>
 #include <potentiometer.h>
 
-//>>SOFWTARE VERSION 
+//>>SOFWTARE VERSION
 int version_ID=8; //to be read 00.03, stored at adress 7 in memory
 //>>BUTTON ARRAYS<<
 debouncer harp_array[12];
@@ -89,7 +89,6 @@ uint8_t current_harp_notes[12];                  // the array for the note calcu
 int8_t current_line = -1;      // holds the current selected line of button, -1 if nothing is on
 int8_t fundamental = 0;        // holds the value of the last selected line, hence the fundamental
 uint8_t slash_value = 0;       // stores the "slash", ie when a different alternative note is selected
-volatile bool midi_flush_needed = false; // set by chord ISR, cleared by loop() after send_now
 bool slash_chord = false;      // flag for when a slashed chord is currently activated
 bool button_pushed = false;    // flag for when any button has been pushed during the main loop
 bool trigger_chord = false;    // flag to trigger the enveloppe of the chord
@@ -284,7 +283,70 @@ uint8_t harp_release_velocity=20;
 uint8_t harp_started_notes[12]={0,0,0,0,0,0,0,0,0,0,0,0};    
 uint8_t midi_base_note=48; // for C3
 uint8_t midi_base_note_transposed=midi_base_note; //to handle note transposition
-uint midi_buffer_delay=300; //in microseconds, helps compatibility with some hardware devices 
+uint midi_buffer_delay=300; //in microseconds, helps compatibility with some hardware devices
+
+//-->>MIDI OUTPUT QUEUE
+// usbMIDI is not reentrant; calling it from both loop() and a PIT ISR corrupts its
+// transmit state. Rule: only drain_midi_queue(), called at the end of loop(), touches
+// usbMIDI. Everything else enqueues via queue_midi(), safe from ISR context.
+#define MIDI_QUEUE_SIZE 256 // power of two, max 256 for uint8_t indices
+#define MIDI_DRAIN_MAX_PER_LOOP 16 // caps how long a drain can hold up loop()
+struct midi_event_t {
+  uint8_t note;
+  uint8_t velocity;
+  uint8_t channel;
+  uint8_t cable;
+  bool note_on;
+};
+volatile midi_event_t midi_queue[MIDI_QUEUE_SIZE];
+volatile uint8_t midi_queue_head = 0; // written by producers
+volatile uint8_t midi_queue_tail = 0; // written by loop() only
+volatile uint32_t midi_queue_dropped = 0; // diagnostic: events lost to a full queue
+
+// Safe to call from any context, including an ISR. Drops the event if the queue is
+// full rather than blocking -- blocking is what caused the original fault.
+void queue_midi(bool note_on, uint8_t note, uint8_t velocity, uint8_t channel, uint8_t cable) {
+  uint32_t primask;
+  __asm__ volatile("mrs %0, primask" : "=r"(primask));
+  __disable_irq();
+  uint8_t next = (midi_queue_head + 1) & (MIDI_QUEUE_SIZE - 1);
+  if (next != midi_queue_tail) {
+    midi_queue[midi_queue_head].note = note;
+    midi_queue[midi_queue_head].velocity = velocity;
+    midi_queue[midi_queue_head].channel = channel;
+    midi_queue[midi_queue_head].cable = cable;
+    midi_queue[midi_queue_head].note_on = note_on;
+    midi_queue_head = next;
+  } else {
+    midi_queue_dropped++;
+  }
+  if (!primask) __enable_irq();
+}
+
+// Called from loop() only. The single point at which this firmware talks to usbMIDI.
+void drain_midi_queue() {
+  bool sent = false;
+  uint8_t budget = MIDI_DRAIN_MAX_PER_LOOP;
+
+  while (midi_queue_tail != midi_queue_head && budget > 0) {
+    budget--;
+    midi_event_t e;
+    e.note = midi_queue[midi_queue_tail].note;
+    e.velocity = midi_queue[midi_queue_tail].velocity;
+    e.channel = midi_queue[midi_queue_tail].channel;
+    e.cable = midi_queue[midi_queue_tail].cable;
+    e.note_on = midi_queue[midi_queue_tail].note_on;
+    midi_queue_tail = (midi_queue_tail + 1) & (MIDI_QUEUE_SIZE - 1);
+    if (sent) delayMicroseconds(midi_buffer_delay); // pacing for slower hardware synths
+    if (e.note_on) {
+      usbMIDI.sendNoteOn(e.note, e.velocity, e.channel, e.cable);
+    } else {
+      usbMIDI.sendNoteOff(e.note, e.velocity, e.channel, e.cable);
+    }
+    sent = true;
+  }
+  if (sent) usbMIDI.send_now();
+}
 
 //-->>FUNCTION THAT NEED ANNOUNCING
 void save_config(int bank_number, bool default_save);
@@ -461,14 +523,12 @@ void play_single_note(int i, IntervalTimer *timer) {
   chord_vibrato_dc_envelope_array[i]->noteOn();
   chord_envelope_array[i]->noteOn();
   chord_envelope_filter_array[i]->noteOn();
+  // ISR context: queue only, never touch usbMIDI here.
   if(chord_started_notes[i]!=0){
-    usbMIDI.sendNoteOff(chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
-    delayMicroseconds(midi_buffer_delay);
+    queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;}
-  usbMIDI.sendNoteOn(midi_base_note_transposed+ current_applied_chord_notes[i],chord_attack_velocity,chord_channel, chord_port);
-  delayMicroseconds(midi_buffer_delay);
+  queue_midi(true, midi_base_note_transposed+ current_applied_chord_notes[i],chord_attack_velocity,chord_channel, chord_port);
   chord_started_notes[i]=midi_base_note_transposed+ current_applied_chord_notes[i];
-  midi_flush_needed = true;
 }
 
 void play_note_selected_duration(int i,int current_note){
@@ -477,12 +537,11 @@ void play_note_selected_duration(int i,int current_note){
   chord_envelope_array[i]->noteOn();
   chord_envelope_filter_array[i]->noteOn();
   note_off_timing[i]=0;
+  // ISR context: queue only, never touch usbMIDI here.
   if(chord_started_notes[i]!=0){
-    usbMIDI.sendNoteOff(chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
-    delayMicroseconds(midi_buffer_delay);
+    queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;}
-  usbMIDI.sendNoteOn(midi_base_note_transposed+current_note,chord_attack_velocity,chord_channel, chord_port);
-  delayMicroseconds(midi_buffer_delay);
+  queue_midi(true, midi_base_note_transposed+current_note,chord_attack_velocity,chord_channel, chord_port);
   chord_started_notes[i]=midi_base_note_transposed+current_note;
 }
 
@@ -542,13 +601,13 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
     AudioInterrupts();
   }
 
+  // Reached from BOTH the main loop (update_chord_notes) and PIT ISR context
+  // (play_single_note, rythm_tick_function), so it must queue rather than send.
   if(chord_started_notes[i]!=0 && chord_started_notes[i]!=midi_base_note_transposed+current_note){
     //we need to change the note without triggering the change, ie a pitch bend
-    usbMIDI.sendNoteOff(chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
-    delayMicroseconds(midi_buffer_delay);
+    queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;
-    usbMIDI.sendNoteOn(midi_base_note_transposed+current_note,chord_attack_velocity,chord_channel, chord_port);
-    delayMicroseconds(midi_buffer_delay);
+    queue_midi(true, midi_base_note_transposed+current_note,chord_attack_velocity,chord_channel, chord_port);
     chord_started_notes[i]=midi_base_note_transposed+ current_note;
   }
 }
@@ -921,11 +980,9 @@ void handle_harp() {
       string_transient_envelope_array[i]->noteOn();
       AudioInterrupts();
       if (harp_started_notes[i] != 0) {
-        usbMIDI.sendNoteOff(harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
-        usbMIDI.send_now(); delayMicroseconds(midi_buffer_delay);
+        queue_midi(false, harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
       }
-      usbMIDI.sendNoteOn(midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, harp_channel, harp_port);
-      usbMIDI.send_now(); delayMicroseconds(midi_buffer_delay);
+      queue_midi(true, midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, harp_channel, harp_port);
       harp_started_notes[i] = midi_base_note_transposed + current_harp_notes[i];
     } else if (value == 1) {
       AudioNoInterrupts();
@@ -934,8 +991,7 @@ void handle_harp() {
       string_enveloppe_filter_array[i]->noteOff();
       AudioInterrupts();
       if (harp_started_notes[i] != 0) {
-        usbMIDI.sendNoteOff(harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
-        usbMIDI.send_now(); delayMicroseconds(midi_buffer_delay);
+        queue_midi(false, harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
         harp_started_notes[i] = 0;
       }
     }
@@ -1000,10 +1056,8 @@ void update_harp_notes() {
     for (int i = 0; i < 12; i++) {
       current_harp_notes[i] = calculate_note_harp(i, slash_chord, sharp_active);
       if (change_held_strings && harp_started_notes[i] != 0) {
-        usbMIDI.sendNoteOff(harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
-        usbMIDI.send_now(); delayMicroseconds(midi_buffer_delay);
-        usbMIDI.sendNoteOn(midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, harp_channel, harp_port);
-        usbMIDI.send_now(); delayMicroseconds(midi_buffer_delay);
+        queue_midi(false, harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
+        queue_midi(true, midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, harp_channel, harp_port);
         harp_started_notes[i] = midi_base_note_transposed + current_harp_notes[i];
         if (string_enveloppe_array[i]->isSustain()) {
           set_harp_voice_frequency(i, current_harp_notes[i]);
@@ -1023,34 +1077,33 @@ void stop_chord_notes() {
       chord_vibrato_dc_envelope_array[i]->noteOff();
       chord_envelope_array[i]->noteOff();
       chord_envelope_filter_array[i]->noteOff();
-      if (chord_started_notes[i] != 0) {
-        usbMIDI.sendNoteOff(chord_started_notes[i], chord_release_velocity, chord_channel, chord_port);
-        delayMicroseconds(midi_buffer_delay);
-        chord_started_notes[i] = 0;
-      }
+    }
+    // Sent regardless of the internal envelope: an external synth holds the note
+    // until it receives the Note Off.
+    if (chord_started_notes[i] != 0) {
+      queue_midi(false, chord_started_notes[i], chord_release_velocity, chord_channel, chord_port);
+      chord_started_notes[i] = 0;
     }
   }
   AudioInterrupts();
-  usbMIDI.send_now(); // flush chord NoteOffs to host immediately
 }
 
 void handle_rhythm_mode() {
-  bool sent_note_off = false;
   for (int i = 0; i < 4; i++) {
-    if (note_off_timing[i] > note_pushed_duration && chord_envelope_array[i]->isSustain()) {
-      chord_vibrato_envelope_array[i]->noteOff();
-      chord_vibrato_dc_envelope_array[i]->noteOff();
-      chord_envelope_array[i]->noteOff();
-      chord_envelope_filter_array[i]->noteOff();
+    if (note_off_timing[i] > note_pushed_duration) {
+      if (chord_envelope_array[i]->isSustain()) {
+        chord_vibrato_envelope_array[i]->noteOff();
+        chord_vibrato_dc_envelope_array[i]->noteOff();
+        chord_envelope_array[i]->noteOff();
+        chord_envelope_filter_array[i]->noteOff();
+      }
+      // See stop_chord_notes().
       if (chord_started_notes[i] != 0) {
-        usbMIDI.sendNoteOff(chord_started_notes[i], chord_release_velocity, chord_channel, chord_port);
-        delayMicroseconds(midi_buffer_delay);
+        queue_midi(false, chord_started_notes[i], chord_release_velocity, chord_channel, chord_port);
         chord_started_notes[i] = 0;
-        sent_note_off = true;
       }
     }
   }
-  if (sent_note_off) usbMIDI.send_now();
 }
 
 void handle_continuous_mode() {
@@ -1170,12 +1223,6 @@ void loop() {
   if (usbMIDI.read()) {
     processMIDI();
   }
-  // Flush MIDI buffer only when chord ISR has queued a note
-  if (midi_flush_needed) {
-    usbMIDI.send_now();
-    midi_flush_needed = false;
-  }
-
   // Check sysex controller connection
   if (sysex_controler_connected && (USB1_PORTSC1, 7)) {
     sysex_controler_connected = false;
@@ -1231,4 +1278,8 @@ void loop() {
 
   // Handle harp functions
   handle_harp();
+
+  // The only point at which this firmware transmits MIDI. Must stay last, and must
+  // stay in loop() -- see the MIDI OUTPUT QUEUE comment above.
+  drain_midi_queue();
 }

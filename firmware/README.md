@@ -30,50 +30,15 @@ Once in the venv, install the necessary packages by using `pip3 install -r requi
 
 Generation can then simply be done by running the `generate.py`script: `python3 generate.py`.
 
-### Caveat 
+### USB descriptor customisation
 
-To get the midi interface to display the right number of cables, the `usb_desc.h` file in the `~/.platformio/packages/framework-arduinoteensy/cores/teensy4` folder needs to be modified to the following:
+The device uses the stock `USB_MIDI16_AUDIO_SERIAL` USB type of the Teensy core, with two changes: it advertises 2 MIDI cables instead of 16, and it reports `minichord` as manufacturer and product name.
 
-```
-#elif defined(USB_MIDI16_AUDIO_SERIAL)
-  #define VENDOR_ID		0x16C0
-  #define PRODUCT_ID		0x048A
-  #define BCD_DEVICE		0x0212
-  #define MANUFACTURER_NAME	{'m','i','n','i','c','h','o','r','d'}
-  #define MANUFACTURER_NAME_LEN	9
-  #define PRODUCT_NAME		{'m','i','n','i','c','h','o','r','d'}
-  #define PRODUCT_NAME_LEN	9
-  #define EP0_SIZE		64
-  #define NUM_ENDPOINTS         8
-  #define NUM_INTERFACE		6
-  #define CDC_IAD_DESCRIPTOR	1
-  #define CDC_STATUS_INTERFACE	0
-  #define CDC_DATA_INTERFACE	1	// Serial
-  #define CDC_ACM_ENDPOINT	2
-  #define CDC_RX_ENDPOINT       3
-  #define CDC_TX_ENDPOINT       3
-  #define CDC_ACM_SIZE          16
-  #define CDC_RX_SIZE_480       512
-  #define CDC_TX_SIZE_480       512
-  #define CDC_RX_SIZE_12        64
-  #define CDC_TX_SIZE_12        64
-  #define MIDI_INTERFACE        2	// MIDI
-  #define MIDI_NUM_CABLES       2
-  #define MIDI_TX_ENDPOINT      4
-  #define MIDI_TX_SIZE_12       64
-  #define MIDI_TX_SIZE_480      512
-  #define MIDI_RX_ENDPOINT      4
-  #define MIDI_RX_SIZE_12       64
-  #define MIDI_RX_SIZE_480      512
-  #define AUDIO_INTERFACE	3	// Audio (uses 3 consecutive interfaces)
-  #define AUDIO_TX_ENDPOINT     5
-  #define AUDIO_TX_SIZE         180
-  #define AUDIO_RX_ENDPOINT     5
-  #define AUDIO_RX_SIZE         180
-  #define AUDIO_SYNC_ENDPOINT	6
-  #define ENDPOINT2_CONFIG	ENDPOINT_RECEIVE_UNUSED + ENDPOINT_TRANSMIT_INTERRUPT
-  #define ENDPOINT3_CONFIG	ENDPOINT_RECEIVE_BULK + ENDPOINT_TRANSMIT_BULK
-  #define ENDPOINT4_CONFIG	ENDPOINT_RECEIVE_BULK + ENDPOINT_TRANSMIT_BULK
-  #define ENDPOINT5_CONFIG	ENDPOINT_RECEIVE_ISOCHRONOUS + ENDPOINT_TRANSMIT_ISOCHRONOUS
-  #define ENDPOINT6_CONFIG	ENDPOINT_RECEIVE_UNUSED + ENDPOINT_TRANSMIT_ISOCHRONOUS
-```
+The USB audio recording tap in `include/audio_definition.h` is guarded by `#ifdef AUDIO_INTERFACE`, so building against a USB type without audio interfaces still works without further edits.
+
+Both are done from within the project, so no file of the `framework-arduinoteensy` package has to be touched:
+
+- the names are set in [src/name.c](src/name.c), which overrides the (weakly defined) `usb_string_manufacturer_name` and `usb_string_product_name` descriptors of the core;
+- the cable count is set in [include/usb_desc_override.h](include/usb_desc_override.h), which `platformio.ini` force-includes in front of every translation unit with `-include`. Because the core's `usb_desc.h` uses `#pragma once`, reading it from that header first means the core sources later get a no-op include and keep our value of `MIDI_NUM_CABLES`.
+
+Earlier versions of this project instead asked for a manual edit of `usb_desc.h` in `~/.platformio/packages/framework-arduinoteensy/cores/teensy4`. That is no longer needed, and if you patched that file previously you can restore it to its original content.

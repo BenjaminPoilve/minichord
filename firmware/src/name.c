@@ -17,3 +17,9 @@ struct usb_string_descriptor_struct usb_string_product_name = {
         3,
         MIDI_NAME
 };
+
+struct usb_string_descriptor_struct usb_string_manufacturer_name = {
+        2 + MIDI_NAME_LEN * 2,
+        3,
+        MIDI_NAME
+};

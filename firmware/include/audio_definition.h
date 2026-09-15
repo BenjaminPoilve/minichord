@@ -407,8 +407,10 @@ AudioMixer4              reverb_mixer;
 AudioEffectPlateReverb   main_reverb;    
 AudioMixer4              stereo_l_mixer;        
 AudioMixer4              stereo_r_mixer;   
-AudioOutputI2S           DAC_out;    
-AudioOutputUSB           USB_out;      
+AudioOutputI2S           DAC_out;
+#ifdef AUDIO_INTERFACE
+AudioOutputUSB           USB_out;
+#endif
 
 AudioConnection          patchCord2000(string_filter_mixer, 0, string_multiplier, 0);
 AudioConnection          patchCord2001(string_gain, 0, string_multiplier, 1);
@@ -439,5 +441,9 @@ AudioConnection          patchCord2022(main_reverb, 1, stereo_l_mixer, 2);
 AudioConnection          patchCord2023(stereo_l_mixer, 0, DAC_out, 1);
 AudioConnection          patchCord2024(stereo_r_mixer, 0, DAC_out, 0);
 
+// USB audio recording tap; absent when the USB type has no audio interfaces.
+// The headphone/speaker path (patchCord2023/2024 into DAC_out) is unaffected.
+#ifdef AUDIO_INTERFACE
 AudioConnection          patchCord2025(stereo_l_mixer, 0, USB_out, 1);
 AudioConnection          patchCord2026(stereo_r_mixer, 0, USB_out, 0);
+#endif
