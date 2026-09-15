@@ -1480,7 +1480,7 @@ void loop() {
     processMIDI();
   }
   // Check sysex controller connection
-  if (sysex_controler_connected && (USB1_PORTSC1, 7)) {
+  if (sysex_controler_connected && bitRead(USB1_PORTSC1, 7)) {
     sysex_controler_connected = false;
   }
 
