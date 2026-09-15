@@ -13,6 +13,22 @@ function map_value(value, in_min, in_max, out_min, out_max) {
 
 //-->>INTERFACE HANDLER
 //Slider Handler
+// A row of degree checkboxes writes bits of one parameter. Assemble the mask
+// from every box in the row and send it as a single value.
+function handledegree(box) {
+  const address = box.getAttribute("adress_field");
+  const boxes = document.querySelectorAll('.degree_box[adress_field="' + address + '"]');
+  let mask = 0;
+  boxes.forEach(b => { if (b.checked) mask |= (1 << parseInt(b.getAttribute("bit"))); });
+  const value_zone = document.getElementById("value_zone" + address);
+  if (value_zone) {
+    let count = 0;
+    boxes.forEach(b => { if (b.checked) count++; });
+    value_zone.innerHTML = count + " notes";
+  }
+  miniChordController.sendParameter(address, mask);
+}
+
 function handlechange(event) {
   if (miniChordController.isConnected()) {
     const curve_type = event.getAttribute("curve");
@@ -232,6 +248,18 @@ function set_slider_to_value(slider_num, sysex_value) {
       var value_zone = document.getElementById("value_zone" + slider_num);
       if (value_zone) {
         value_zone.innerHTML = sysex_value / miniChordController.float_multiplier;
+      }
+    } else if (result[0].getAttribute("data_type") == "degrees") {
+      const boxes = document.querySelectorAll('.degree_box[adress_field="' + slider_num + '"]');
+      let count = 0;
+      boxes.forEach(b => {
+        const on = (sysex_value & (1 << parseInt(b.getAttribute("bit")))) != 0;
+        b.checked = on;
+        if (on) count++;
+      });
+      var value_zone = document.getElementById("value_zone" + slider_num);
+      if (value_zone) {
+        value_zone.innerHTML = count + " notes";
       }
     } else {
       result[0].value = slider_value;

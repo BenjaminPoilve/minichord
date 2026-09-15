@@ -610,3 +610,38 @@ body.dark-mode #theme-toggle::before {
 #theme-toggle::before {
   content: "🌙";
 }
+/* A row of chromatic degrees, used by the custom scale. Styled to sit with the
+   sliders: same text colour, same accent, same inactive treatment. */
+.degree_row {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  gap: 2px;
+}
+
+.degree {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.7em;
+  line-height: 1.1;
+  color: var(--text-color);
+  user-select: none;
+}
+
+.degree_box {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  margin: 0 0 2px 0;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 1px solid var(--text-color);
+  background-color: transparent;
+}
+
+.degree_box:checked {
+  background-color: var(--slider_color, #333);
+}
