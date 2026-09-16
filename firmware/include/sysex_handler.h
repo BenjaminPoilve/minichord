@@ -36,6 +36,30 @@ void apply_audio_parameter(int adress, int value) {
       case 34:
         chord_frame_shift=value;
         break;
+      case 39:
+        alt_chord_layout=value;
+        break;
+      case 202:
+        
+        break;
+      case 203:
+        
+        break;
+      case 204:
+        
+        break;
+      case 205:
+        
+        break;
+      case 206:
+        
+        break;
+      case 207:
+        
+        break;
+      case 208:
+        
+        break;
       case 35:
         key_signature_selection=value;
         break;
