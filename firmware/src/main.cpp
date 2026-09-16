@@ -141,6 +141,12 @@ bool button_pushed = false;    // flag for when any button has been pushed durin
 bool trigger_chord = false;    // flag to trigger the enveloppe of the chord
 bool sharp_active = false;     // flag for when the sharp is active
 bool flat_button_modifier= false; //flag to set the modifier to flat instead of sharp
+// The modifier button both sharpens the chord and selects the potentiometers'
+// alternate targets, so reaching for an alternate setting while playing would
+// sharpen whatever is sounding. Once a potentiometer actually moves under the
+// held modifier, the modifier is taken to mean "alternate" for the rest of that
+// hold, and the sharpening is dropped.
+bool modifier_claimed_by_pot = false;
 bool continuous_chord = false; // wether the chord is held continuously. Controlled by the "hold" button
 bool rythm_mode = false;
 bool barry_harris_mode = false;
@@ -1204,7 +1210,7 @@ void handle_chords_button() {
   if (sharp_transition > 1 && current_line != -1) {
     button_pushed = true;
   }
-  sharp_active = chord_matrix_array[0].read_value();
+  sharp_active = chord_matrix_array[0].read_value() && !modifier_claimed_by_pot;
 
   for (int i = 1; i < 22; i++) {
     int value = chord_matrix_array[i].read_transition();
@@ -1507,9 +1513,19 @@ void loop() {
 
   // Handle potentiometer updates
   bool alternate = chord_matrix_array[0].read_value();
-  flag_save_needed |= chord_pot.update_parameter(alternate);
-  flag_save_needed |= harp_pot.update_parameter(alternate);
-  flag_save_needed |= mod_pot.update_parameter(alternate);
+  bool pot_moved = false;
+  pot_moved |= chord_pot.update_parameter(alternate);
+  pot_moved |= harp_pot.update_parameter(alternate);
+  pot_moved |= mod_pot.update_parameter(alternate);
+  flag_save_needed |= pot_moved;
+
+  if (!alternate) {
+    modifier_claimed_by_pot = false;
+  } else if (pot_moved && !modifier_claimed_by_pot) {
+    modifier_claimed_by_pot = true;
+    // a chord is already sounding sharpened, so recalculate it without
+    if (current_line != -1) button_pushed = true;
+  }
 
   // Handle continuous mode logic
   if (!continuous_chord && !rythm_mode) {
