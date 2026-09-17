@@ -1531,10 +1531,12 @@ void toggle_double_tap_target() {
   }
   // The gesture changes a parameter with nothing on the wire to show it, so a
   // remote editor keeps displaying the value the player has just toggled away
-  // from. Report the new state, on the way in and on the way out. save_config
-  // still writes the value underneath the toggle, so a save while engaged is
-  // unaffected.
-  control_command(0, 0);
+  // from. Report the new state, on the way in and on the way out, but only to a
+  // controller that has talked to the device: unsolicited, the full parameter
+  // dump lands on the performance port of whatever host is connected, twice per
+  // toggle. save_config still writes the value underneath the toggle, so a save
+  // while engaged is unaffected.
+  if (sysex_controler_connected) control_command(0, 0);
 }
 
 void loop() {
