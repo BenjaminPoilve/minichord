@@ -129,6 +129,9 @@ void apply_audio_parameter(int adress, int value) {
       case 109:
         { int tenths = (value == 0) ? 4400 : constrain(value, 4320, 4460); float tuned_c_frequency = 130.81 * (tenths / 4400.0); if (tuned_c_frequency != c_frequency) { c_frequency = tuned_c_frequency; retune_active_voices(); } }
         break;
+      case 237:
+        apply_temperament(value);
+        break;
       case 2:
         string_gain.amplitude(value/100.0,100);  harp_attack_velocity=value/100.0*127;
         break;
