@@ -1550,10 +1550,13 @@ void handle_key_change_mode(uint8_t up_transition, uint8_t down_transition, bool
     // The combo changes address 35 without the host seeing anything: a re-keyed
     // chord is byte-identical over MIDI to a different chord already on the
     // grid, so a remote cannot infer it. Report the settled value once, on the
-    // way out, rather than on every selection while the player auditions keys.
+    // way out, rather than on every selection while the player auditions keys,
+    // and only to a controller that has talked to the device: unsolicited, the
+    // full parameter dump lands on the performance port of whatever host is
+    // connected.
     if (key_change_reported != key_signature_selection) {
       key_change_reported = key_signature_selection;
-      control_command(0, 0);
+      if (sysex_controler_connected) control_command(0, 0);
     }
     set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
     preset_inhibit = true;
