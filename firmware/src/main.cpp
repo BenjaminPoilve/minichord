@@ -96,9 +96,11 @@ float c_frequency = 130.81;                      // for C3
 uint8_t scalar_harp_selection = 0;
 
 // Tonic pitch class for each key signature, in the order of the KeySig enum
-const int8_t scale_root_offsets[12] = {
-  0, 7, 2, 9, 4, 11, // C, G, D, A, E, B
-  5, 10, 3, 8, 1, 6  // F, Bb, Eb, Ab, Db, Gb
+const int8_t scale_root_offsets[21] = {
+  0, 7, 2, 9, 4, 11,       // C, G, D, A, E, B
+  5, 10, 3, 8, 1, 6,       // F, Bb, Eb, Ab, Db, Gb
+  6, 1, 8, 3, 10, 5, 0,    // F#, C#, G#, D#, A#, E#, B#
+  4, 11                    // Fb, Cb
 };
 
 // Fixed scales for modes 1-7, semitones from the root
