@@ -48,6 +48,12 @@ void apply_audio_parameter(int adress, int value) {
       case 38:
         chord_spacing=value; for (int i = 0; i < 7; i++) { current_chord_notes[i]=calculate_note_chord(i,slash_chord,sharp_active); } for (int i = 0; i < 4; i++) { if (chord_envelope_array[i]->isActive()) { set_chord_voice_frequency(i, current_chord_notes[i]); } }
         break;
+      case 109:
+        { int tenths = (value == 0) ? 4400 : constrain(value, 4320, 4460); float tuned_c_frequency = 130.81 * (tenths / 4400.0); if (tuned_c_frequency != c_frequency) { c_frequency = tuned_c_frequency; retune_active_voices(); } }
+        break;
+      case 237:
+        apply_temperament(value);
+        break;
       case 24:
         main_reverb.size(value/100.0);
         break;
