@@ -966,7 +966,7 @@ void rythm_tick_function() {
   }
   // handling the led pattern
   uint8_t active_modulus = 1;
-  uint8_t possible_pattern[4] = {3, 2};
+  uint8_t possible_pattern[2] = {3, 2};
   for (uint8_t i = 0; i < sizeof(possible_pattern) / sizeof(uint8_t); i++) {
     if (rythm_loop_length % possible_pattern[i] == 0) {
       active_modulus = possible_pattern[i];
