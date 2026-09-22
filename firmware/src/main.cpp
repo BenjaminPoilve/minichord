@@ -1590,6 +1590,10 @@ void handle_key_change_mode(uint8_t up_transition, uint8_t down_transition, bool
       current_sysex_parameters[35] = selected_key;
       update_harp_notes();
       update_chord_notes();
+      // A re-keying is a deliberate setting change, so it persists the way a
+      // pot move does: written back by the save that runs on the next preset
+      // change, once no controller is connected.
+      flag_save_needed = true;
     }
 
     // Hold the chosen key's colour steady while its button is down. A flash was
