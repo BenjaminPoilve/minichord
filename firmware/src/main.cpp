@@ -40,6 +40,54 @@ float led_attenuation = 0.0;
 
 //>>CHORD DEFINITION<<
 //for each chord, we first have the 4 notes of the chord, then decoration that might be used in specific modes
+/* ---- octave divisions -------------------------------------------------------
+ *
+ * Temperaments 10 and 11 divide the octave into 19 and 31 steps instead of
+ * twelve, so every table of note numbers has a version per division: chords,
+ * scales, the chord scales of the scale-per-chord harp, the root offsets and
+ * the button base notes. apply_temperament() copies the live division's set
+ * over the working tables, and EDO, sharp_step and transpose_steps carry the
+ * arithmetic everywhere a twelve used to be hardcoded. Intervals are the
+ * nearest approximation of each just target in the division: in 31 a major
+ * third is 10 steps (387 cents, one cent from 5:4) and a fifth 18 (697).
+ */
+const uint8_t edo_steps[3] = {12, 19, 31};
+const uint8_t edo_sharp[3] = {1, 1, 2};   // how far a sharp moves: one step in 12 and 19, two in 31
+uint8_t EDO = 12;             // steps per octave of the live division
+uint8_t edo_index = 0;        // which of the three divisions is live
+uint8_t sharp_step = 1;       // how far a sharp or flat moves a letter
+uint8_t transpose_steps = 0;  // transposition in steps of the live division; equal to transpose_semitones in 12
+const int8_t edo_base_notes[3][7] = {
+  {11, 4, 9, 2, 7, 0, 5},
+  {17, 6, 14, 3, 11, 0, 8},
+  {28, 10, 23, 5, 18, 0, 13}
+};
+const int8_t edo_scale_root_offsets[3][12] = {
+  {0, 7, 2, 9, 4, 11, 5, 10, 3, 8, 1, 6},
+  {0, 11, 3, 14, 6, 17, 8, 16, 5, 13, 2, 10},
+  {0, 18, 5, 23, 10, 28, 13, 26, 8, 21, 3, 16}
+};
+const uint8_t edo_scale_intervals[3][7][8] = {
+  {{0, 2, 4, 5, 7, 9, 11, 0}, {0, 2, 4, 7, 9, 0, 0, 0}, {0, 2, 3, 7, 10, 0, 0, 0}, {0, 2, 4, 5, 7, 8, 9, 11}, {0, 2, 3, 5, 7, 8, 10, 0}, {0, 2, 3, 5, 7, 8, 11, 0}, {0, 2, 3, 7, 10, 0, 0, 0}},
+  {{0, 3, 6, 8, 11, 14, 17, 0}, {0, 3, 6, 11, 14, 0, 0, 0}, {0, 3, 5, 11, 16, 0, 0, 0}, {0, 3, 6, 8, 11, 13, 14, 17}, {0, 3, 5, 8, 11, 13, 16, 0}, {0, 3, 5, 8, 11, 13, 17, 0}, {0, 3, 5, 11, 16, 0, 0, 0}},
+  {{0, 5, 10, 13, 18, 23, 28, 0}, {0, 5, 10, 18, 23, 0, 0, 0}, {0, 5, 8, 18, 26, 0, 0, 0}, {0, 5, 10, 13, 18, 21, 23, 28}, {0, 5, 8, 13, 18, 21, 26, 0}, {0, 5, 8, 13, 18, 21, 28, 0}, {0, 5, 8, 18, 26, 0, 0, 0}}
+};
+const uint8_t edo_chord_scale_intervals[3][15][8] = {
+  {{0, 2, 4, 7, 9, 0, 0, 0}, {0, 2, 4, 6, 9, 0, 0, 0}, {0, 3, 5, 7, 10, 0, 0, 0}, {0, 2, 4, 7, 10, 0, 0, 0}, {0, 3, 5, 7, 9, 0, 0, 0}, {0, 1, 3, 4, 6, 7, 9, 10}, {0, 2, 4, 6, 8, 10, 0, 0}, {0, 2, 4, 5, 7, 8, 9, 11}, {0, 2, 3, 5, 7, 8, 9, 11}, {0, 2, 3, 4, 6, 7, 9, 11}, {0, 2, 4, 5, 7, 9, 11, 0}, {0, 2, 3, 5, 7, 9, 10, 0}, {0, 2, 4, 6, 7, 9, 11, 0}, {0, 2, 4, 5, 7, 9, 10, 0}, {0, 2, 3, 5, 7, 8, 10, 0}},
+  {{0, 3, 6, 11, 14, 0, 0, 0}, {0, 3, 6, 9, 14, 0, 0, 0}, {0, 5, 8, 11, 16, 0, 0, 0}, {0, 3, 6, 11, 16, 0, 0, 0}, {0, 5, 8, 11, 14, 0, 0, 0}, {0, 2, 5, 6, 9, 11, 14, 16}, {0, 3, 6, 9, 13, 16, 0, 0}, {0, 3, 6, 8, 11, 13, 14, 17}, {0, 3, 5, 8, 11, 13, 14, 17}, {0, 3, 5, 6, 9, 11, 14, 17}, {0, 3, 6, 8, 11, 14, 17, 0}, {0, 3, 5, 8, 11, 14, 16, 0}, {0, 3, 6, 9, 11, 14, 17, 0}, {0, 3, 6, 8, 11, 14, 16, 0}, {0, 3, 5, 8, 11, 13, 16, 0}},
+  {{0, 5, 10, 18, 23, 0, 0, 0}, {0, 5, 10, 15, 23, 0, 0, 0}, {0, 8, 13, 18, 26, 0, 0, 0}, {0, 5, 10, 18, 26, 0, 0, 0}, {0, 8, 13, 18, 23, 0, 0, 0}, {0, 3, 8, 10, 15, 18, 23, 26}, {0, 5, 10, 15, 21, 26, 0, 0}, {0, 5, 10, 13, 18, 21, 23, 28}, {0, 5, 8, 13, 18, 21, 23, 28}, {0, 5, 8, 10, 15, 18, 23, 28}, {0, 5, 10, 13, 18, 23, 28, 0}, {0, 5, 8, 13, 18, 23, 26, 0}, {0, 5, 10, 15, 18, 23, 28, 0}, {0, 5, 10, 13, 18, 23, 26, 0}, {0, 5, 8, 13, 18, 21, 26, 0}}
+};
+const uint8_t edo_major[3][7] = {{0, 4, 7, 12, 2, 5, 9}, {0, 6, 11, 19, 3, 8, 14}, {0, 10, 18, 31, 5, 13, 23}};
+const uint8_t edo_minor[3][7] = {{0, 3, 7, 12, 1, 5, 8}, {0, 5, 11, 19, 2, 8, 13}, {0, 8, 18, 31, 3, 13, 21}};
+const uint8_t edo_maj_sixth[3][7] = {{0, 4, 7, 9, 2, 5, 12}, {0, 6, 11, 14, 3, 8, 19}, {0, 10, 18, 23, 5, 13, 31}};
+const uint8_t edo_min_sixth[3][7] = {{0, 3, 7, 9, 1, 5, 12}, {0, 5, 11, 14, 2, 8, 19}, {0, 8, 18, 23, 3, 13, 31}};
+const uint8_t edo_seventh[3][7] = {{0, 4, 10, 7, 2, 5, 9}, {0, 6, 16, 11, 3, 8, 14}, {0, 10, 26, 18, 5, 13, 23}};
+const uint8_t edo_maj_seventh[3][7] = {{0, 4, 11, 7, 2, 5, 9}, {0, 6, 17, 11, 3, 8, 14}, {0, 10, 28, 18, 5, 13, 23}};
+const uint8_t edo_min_seventh[3][7] = {{0, 3, 10, 7, 1, 5, 8}, {0, 5, 16, 11, 2, 8, 13}, {0, 8, 26, 18, 3, 13, 21}};
+const uint8_t edo_aug[3][7] = {{0, 4, 8, 12, 2, 5, 9}, {0, 6, 13, 19, 3, 8, 14}, {0, 10, 21, 31, 5, 13, 23}};
+const uint8_t edo_dim[3][7] = {{0, 3, 6, 12, 2, 5, 9}, {0, 5, 9, 19, 3, 8, 14}, {0, 8, 15, 31, 5, 13, 23}};
+const uint8_t edo_full_dim[3][7] = {{0, 3, 6, 9, 2, 5, 12}, {0, 5, 9, 14, 3, 8, 19}, {0, 8, 15, 23, 5, 13, 31}};
+
 uint8_t major[7] = {0, 4, 7, 12, 2, 5, 9};  // After the four notes of the chord (fundamental, third, fifth of seven, and octave of fifth, the next notes are the second fourth and sixth)
 uint8_t minor[7] = {0, 3, 7, 12, 1, 5, 8};
 uint8_t maj_sixth[7] = {0, 4, 7, 9, 2, 5, 12};
@@ -93,7 +141,7 @@ enum Button { // Button enum in hardware order: B, E, A, D, G, C, F
 enum FrameShift { //Enums for chord frame shifts
   FRAMESHIFT_0, FRAMESHIFT_1,FRAMESHIFT_2,FRAMESHIFT_3,FRAMESHIFT_4,FRAMESHIFT_5,FRAMESHIFT_6
 };
-const int8_t base_notes[7] = {11, 4, 9, 2, 7, 0, 5}; // Base note offsets for buttons in key of C (relative to C4 = MIDI 60), in hardware order B, E, A, D, G, C, F
+int8_t base_notes[7] = {11, 4, 9, 2, 7, 0, 5}; // Base note offsets for buttons in key of C (relative to C4 = MIDI 60), in hardware order B, E, A, D, G, C, F
 const int8_t key_offsets[12] = {0, 7, 2, 9, 4, 11, 5, 10, 3, 8, 1, 6}; // Circle of fifths: semitone offset for each key’s root note relative to C: C, G, D, A, E, B, F, Bb, Eb, Ab, Db, Gb
 const int8_t key_signatures[12] = {0, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 6}; // Number of sharps or flats for each key: Sharps for C, G, D, A, E, B; flats for F, Bb, Eb, Ab, Db, Gb
 const int8_t sharp_notes[6][6] = { // Notes affected by sharps in each key, in hardware order (B, E, A, D, G, C, F)
@@ -122,13 +170,13 @@ float c_frequency = 130.81;                      // for C3
 uint8_t scalar_harp_selection = 0;
 
 // Tonic pitch class for each key signature, in the order of the KeySig enum
-const int8_t scale_root_offsets[12] = {
+int8_t scale_root_offsets[12] = {
   0, 7, 2, 9, 4, 11, // C, G, D, A, E, B
   5, 10, 3, 8, 1, 6  // F, Bb, Eb, Ab, Db, Gb
 };
 
 // Fixed scales for modes 1-7, semitones from the root
-const uint8_t scale_intervals[7][8] = {
+uint8_t scale_intervals[7][8] = {
   {0, 2, 4, 5, 7, 9, 11, 0}, // 1: Major (Ionian)
   {0, 2, 4, 7, 9, 0, 0, 0},  // 2: Major Pentatonic
   {0, 2, 3, 7, 10, 0, 0, 0}, // 3: Minor Pentatonic
@@ -140,7 +188,7 @@ const uint8_t scale_intervals[7][8] = {
 const uint8_t scale_lengths[7] = {7, 5, 5, 8, 7, 7, 5};
 
 // Scales chosen per chord type for modes 8 and 9
-const uint8_t chord_scale_intervals[15][8] = {
+uint8_t chord_scale_intervals[15][8] = {
   {0, 2, 4, 7, 9, 0, 0, 0},  //  0: Major Pentatonic, major chord
   {0, 2, 4, 6, 9, 0, 0, 0},  //  1: Lydian Pentatonic, major seventh
   {0, 3, 5, 7, 10, 0, 0, 0}, //  2: Minor Pentatonic, minor
@@ -306,8 +354,8 @@ int8_t chord_shuffling_array[6][7] = {
 int8_t chord_shuffling_selection = 0;
 uint8_t chord_inversion = 0; // 0 = root position, 1-3 = successive inversions
 uint8_t chord_spacing = 0;   // 0 = close, 1 = drop 2, 2 = drop 3, 3 = drop 2+4, 4 = spread
-const int8_t chord_note_floor = 12;  // below this the chord voices turn to mud
-const int8_t chord_note_ceiling = 96;
+int16_t chord_note_floor = 12;    // one and eight octaves in the live division,  // below this the chord voices turn to mud
+int16_t chord_note_ceiling = 96;  // set with it in apply_temperament
 // retrigger release for chord delayed note
 int chord_retrigger_release=0;
 int glide_length=0;
@@ -443,33 +491,59 @@ void recalculate_timer();
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp);
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp);
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
-void retune_active_voices();
 void apply_temperament(uint8_t t);
 
 /* ---- temperament ------------------------------------------------------------
  *
  * Equal temperament divides the octave into twelve identical steps: every key
- * sounds the same and no interval but the octave is quite in tune. The other
- * temperaments move each of the twelve pitch classes by a few cents, the way a
- * keyboard was tuned before equal temperament took over: quarter- and
- * sixth-comma meantone, five-limit just intonation, Pythagorean, and the well
- * temperaments of Werckmeister, Kirnberger, Vallotti, Young and Kellner.
+ * sounds the same and no interval but the octave is quite in tune. Temperaments
+ * 1 to 9 move each of the twelve pitch classes by a few cents, the way a
+ * keyboard was tuned before equal temperament took over. Temperaments 10 and 11
+ * keep none of the twelve notes at all: they divide the octave into 19 and 31
+ * equal steps, where the meantone thirds live and the septimal intervals twelve
+ * notes cannot spell become playable.
  *
  * The offsets are in temperament_profiles.h, generated by
  * generator/temperaments.py from how each temperament is built (its tempered
- * fifths, or its ratios); the arithmetic is in temperament.h, where
- * generator/temperament_test.cpp can check it on a computer. A has no offset in any of them, so A sounds at the
- * master tuning pitch whatever the temperament. The tuning is fixed to the
- * keyboard, so which keys are sweet does not follow the key signature.
+ * fifths, its ratios, or its division); the arithmetic is in temperament.h,
+ * where generator/temperament_test.cpp can check it on a computer. A has no
+ * offset in the twelve-note ones, so A sounds at the master tuning pitch there.
+ * The tuning is fixed to the keyboard, so which keys are sweet does not follow
+ * the key signature.
  *
- * Only the sound changes. Note numbers, and so MIDI out, are untouched.
+ * In the twelve-note temperaments only the sound changes: note numbers, and so
+ * MIDI out, are untouched. In 19 and 31 the note numbers themselves are steps
+ * of the division, so MIDI out goes through midi_out_note() below, which
+ * rescales to the nearest semitone: the recording lands in the right register
+ * and is audibly an approximation, rather than silently absurd.
  */
 uint8_t temperament_selection = 0;
 
-// Frequency ratio of a note in the selected temperament; see temperament.h.
-double temper_ratio(int note) {
-  return temperament_ratio(temperament_selection, note);
+// Frequency ratio of a note in the selected temperament and division.
+static inline double temper_ratio(double note) {
+  return temperament_ratio(temperament_selection, EDO, note);
 }
+
+// a minor third in the live division, for the relative-minor harp modes
+static inline int8_t minor_third_steps() {
+  return edo_index == 0 ? 3 : (edo_index == 1 ? 5 : 8);
+}
+
+// MIDI note numbers are integers, so a 31st of an octave has nowhere to go.
+static inline uint8_t midi_out_note(int16_t note) {
+  int32_t v = (edo_index == 0) ? note : (int32_t)lroundf(note * 12.0f / (float)EDO);
+  if (v < 0) v = 0;
+  if (v > 127) v = 127;
+  return (uint8_t)v;
+}
+
+// the harmonic context the note arrays were last built with, so they can be
+// rebuilt when the division changes even though no button is down
+bool chord_context_sharp = false;
+bool chord_context_slashed = false;
+void update_chord_notes();
+void update_harp_notes();
+void retune_active_voices();
 void refresh_chord_filter();
 // the note frequency each chord voice is currently sounding, kept so the filter
 // corner can be recomputed for a voice without touching anything else about it
@@ -478,6 +552,28 @@ uint16_t chord_voice_current_note[4] = {0, 0, 0, 0};   // last note each chord v
 uint16_t harp_voice_current_note[12] = {0};           // same for the harp strings
 void calculate_ws_array();
 void rythm_tick_function();
+void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
+void set_harp_voice_frequency(uint8_t i, uint16_t current_note);
+
+// Re-applies the stored note of every sounding voice, so a reference-pitch
+// change lands on held notes too. Same-division only: apply_temperament() does
+// its own remap, since note numbers change meaning across a division change.
+void retune_active_voices() {
+  for (uint8_t i = 0; i < 4; i++) {
+    noInterrupts();
+    if (chord_envelope_array[i]->isActive()) {
+      set_chord_voice_frequency(i, chord_voice_current_note[i]);
+    }
+    interrupts();
+  }
+  for (uint8_t i = 0; i < 12; i++) {
+    noInterrupts();
+    if (string_enveloppe_array[i]->isActive()) {
+      set_harp_voice_frequency(i, harp_voice_current_note[i]);
+    }
+    interrupts();
+  }
+}
 
 //-->>LED HSV CALCULATION
 // function to calculate led RGB value, thank you SO
@@ -666,8 +762,8 @@ void play_single_note(int i, IntervalTimer *timer) {
   if(chord_started_notes[i]!=0){
     queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;}
-  queue_midi(true, midi_base_note_transposed+ current_applied_chord_notes[i],chord_attack_velocity,chord_channel, chord_port);
-  chord_started_notes[i]=midi_base_note_transposed+ current_applied_chord_notes[i];
+  queue_midi(true, midi_base_note_transposed+ midi_out_note(current_applied_chord_notes[i]),chord_attack_velocity,chord_channel, chord_port);
+  chord_started_notes[i]=midi_base_note_transposed+ midi_out_note(current_applied_chord_notes[i]);
 }
 
 void play_note_selected_duration(int i,int current_note){
@@ -680,8 +776,8 @@ void play_note_selected_duration(int i,int current_note){
   if(chord_started_notes[i]!=0){
     queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;}
-  queue_midi(true, midi_base_note_transposed+current_note,chord_attack_velocity,chord_channel, chord_port);
-  chord_started_notes[i]=midi_base_note_transposed+current_note;
+  queue_midi(true, midi_base_note_transposed+midi_out_note(current_note),chord_attack_velocity,chord_channel, chord_port);
+  chord_started_notes[i]=midi_base_note_transposed+midi_out_note(current_note);
 }
 
 void turn_off_led(IntervalTimer *timer) {
@@ -721,15 +817,15 @@ void refresh_chord_filter() {
 
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
   chord_voice_current_note[i] = current_note;
-  float note_freq = pow(2,chord_octave_change)*c_frequency/8 * temper_ratio(current_note+transpose_semitones); //down one octave to let more possibilities with the shuffling array
+  float note_freq = pow(2,chord_octave_change)*c_frequency/8 * temper_ratio(current_note+transpose_steps); //down one octave to let more possibilities with the shuffling array
   if(glide_length>0){
         //ok so first we need to set the "middle note". Keep in mind that the signal will be +/-1 and will go +/- 2 octaves (frequencyModulation(2), hence the /24.0 below)
     //let's do a trick to select a middle note: get the level (relative to the C) and the note and do a modulo 
-    int note_level=12*chord_octave_change-3*12+current_note+transpose_semitones;
+    int note_level=EDO*chord_octave_change-3*EDO+current_note+transpose_steps;
     int base_octave =chord_octave_change-2+(chord_shuffling_array[chord_shuffling_selection][i])/10;
-    int middle_note=base_octave*12+transpose_semitones; 
+    int middle_note=base_octave*EDO+transpose_steps; 
     int note_delta=note_level-middle_note;
-    float middle_freq=c_frequency*pow(2,middle_note/12.0);
+    float middle_freq=c_frequency*temper_ratio(middle_note);
 
     AudioNoInterrupts();
     chord_voice_note_freq[i] = note_freq;
@@ -741,19 +837,20 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
     chord_osc_1_array[i]->frequency(osc_1_freq_multiplier * middle_freq);
     chord_osc_2_array[i]->frequency(osc_2_freq_multiplier * middle_freq);
     chord_osc_3_array[i]->frequency(osc_3_freq_multiplier * middle_freq);
-    // The oscillators sit on the equal-tempered middle note and the DC offset
-    // reaches the voice's own note through frequencyModulation(2), two octaves
-    // per unit. note_delta/24 is that distance only in equal temperament; in any
-    // other the offset has to come from the real ratio, or every glide voice
-    // lands back on its equal-tempered pitch.
+    // The oscillators sit on the middle note and the DC offset reaches the
+    // voice's own note through frequencyModulation(2), two octaves per unit.
+    // note_delta/24 is that distance only in equal temperament with twelve
+    // steps; anywhere else the offset has to come from the real ratio, or every
+    // glide voice lands on an equal-tempered pitch (and in 19 or 31 steps, on
+    // an unrelated one, since a step is read as a semitone).
     float glide_offset = (temperament_selection == 0)
       ? note_delta/24.0
-      : log2(note_freq / middle_freq) / 2.0;
+      : log2f(note_freq / middle_freq) / 2.0f;
     chord_freq_dc_array[i]->amplitude(glide_offset,glide_length);
     // chord_voice_filter_array[i]->frequency(1*freq);
     AudioInterrupts();
   }else{
-    float note_freq = pow(2,chord_octave_change)*c_frequency/8 * temper_ratio(current_note+transpose_semitones); //down one octave to let more possibilities with the shuffling array
+    float note_freq = pow(2,chord_octave_change)*c_frequency/8 * temper_ratio(current_note+transpose_steps); //down one octave to let more possibilities with the shuffling array
     AudioNoInterrupts();
     chord_voice_note_freq[i] = note_freq;
     chords_vibrato_lfo.frequency(chord_vibrato_base_freq + chord_vibrato_keytrack * current_chord_notes[0]);
@@ -771,21 +868,20 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
 
   // Reached from BOTH the main loop (update_chord_notes) and PIT ISR context
   // (play_single_note, rythm_tick_function), so it must queue rather than send.
-  if(chord_started_notes[i]!=0 && chord_started_notes[i]!=midi_base_note_transposed+current_note){
+  if(chord_started_notes[i]!=0 && chord_started_notes[i]!=midi_base_note_transposed+midi_out_note(current_note)){
     //we need to change the note without triggering the change, ie a pitch bend
     queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;
-    queue_midi(true, midi_base_note_transposed+current_note,chord_attack_velocity,chord_channel, chord_port);
-    chord_started_notes[i]=midi_base_note_transposed+ current_note;
+    queue_midi(true, midi_base_note_transposed+midi_out_note(current_note),chord_attack_velocity,chord_channel, chord_port);
+    chord_started_notes[i]=midi_base_note_transposed+ midi_out_note(current_note);
   }
 }
 // setting the harp
 void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
   harp_voice_current_note[i] = current_note;
-  float note_freq =  pow(2,harp_octave_change)*c_frequency/4 * temper_ratio(current_note+transpose_semitones);
-  float transient_freq =  64.0*c_frequency/4 *pow(2, ((current_note+transpose_semitones)%12+transient_note_level) / 12.0);
+  float note_freq =  pow(2,harp_octave_change)*c_frequency/4 * temper_ratio(current_note+transpose_steps);
+  float transient_freq =  64.0*c_frequency/4 *temper_ratio((current_note+transpose_steps)%EDO+transient_note_level);
   // the transient is an interval above the string's own note, so it moves with it
-  if (temperament_selection != 0) transient_freq *= temperament_offset_factor(temperament_selection, current_note+transpose_semitones);
   AudioNoInterrupts();
   string_waveform_array[i]->frequency(note_freq);
   string_transient_waveform_array[i]->frequency(transient_freq);
@@ -800,31 +896,108 @@ void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
  * chord timers can retune a voice from ISR context; without the lock, a timer
  * could move the voice to a new note between reading the stored note and
  * re-applying it, and this would put the old note back. */
-void retune_active_voices() {
-  for (uint8_t i = 0; i < 4; i++) {
-    noInterrupts();
-    if (chord_envelope_array[i]->isActive()) {
-      set_chord_voice_frequency(i, chord_voice_current_note[i]);
-    }
-    interrupts();
-  }
-  for (uint8_t i = 0; i < 12; i++) {
-    noInterrupts();
-    if (string_enveloppe_array[i]->isActive()) {
-      set_harp_voice_frequency(i, harp_voice_current_note[i]);
-    }
-    interrupts();
-  }
-}
 
 // Selecting a temperament retunes what is sounding, so a held or sustained
 // chord moves to the new tuning rather than waiting for the next note. The note
 // numbers do not change, only their pitch, so no MIDI is sent.
 void apply_temperament(uint8_t t) {
   if (t >= temperament_count) t = 0;
-  if (t == temperament_selection) return;
+  uint8_t previous_edo = EDO;
   temperament_selection = t;
-  retune_active_voices();
+  edo_index = temperament_profiles[t].edo_index;
+  EDO = edo_steps[edo_index];
+  sharp_step = edo_sharp[edo_index];
+  transpose_steps = (transpose_semitones * EDO + 6) / 12; // one semitone of transposition is EDO/12 steps here
+  chord_note_floor = EDO;      // the spacing rails are octaves, so they move with the division
+  chord_note_ceiling = 8 * EDO;
+  memcpy(base_notes, edo_base_notes[edo_index], sizeof(base_notes));
+  memcpy(scale_root_offsets, edo_scale_root_offsets[edo_index], sizeof(scale_root_offsets));
+  memcpy(scale_intervals, edo_scale_intervals[edo_index], sizeof(scale_intervals));
+  memcpy(chord_scale_intervals, edo_chord_scale_intervals[edo_index], sizeof(chord_scale_intervals));
+  memcpy(major, edo_major[edo_index], 7);
+  memcpy(minor, edo_minor[edo_index], 7);
+  memcpy(maj_sixth, edo_maj_sixth[edo_index], 7);
+  memcpy(min_sixth, edo_min_sixth[edo_index], 7);
+  memcpy(seventh, edo_seventh[edo_index], 7);
+  memcpy(maj_seventh, edo_maj_seventh[edo_index], 7);
+  memcpy(min_seventh, edo_min_seventh[edo_index], 7);
+  memcpy(aug, edo_aug[edo_index], 7);
+  memcpy(dim, edo_dim[edo_index], 7);
+  memcpy(full_dim, edo_full_dim[edo_index], 7);
+
+  /* Every note number just changed meaning: in 31 a fifth is 18 rather than 7.
+   * So the note arrays are recomputed unconditionally — update_chord_notes and
+   * update_harp_notes are both gated on button_pushed, which a held chord does
+   * not set — and then pushed into whatever is still sounding, the same way a
+   * master tuning change is.
+   *
+   * set_chord_voice_frequency also sends a MIDI note off and on when the note
+   * number moves, and going from 12 to 31 moves all of them, so a held chord
+   * retriggers over MIDI here. That is right for a pitch change of this size and
+   * matches what master tuning already does, but it is why this belongs on a
+   * deliberate setting change and nowhere near a knob sweep.
+   */
+  //
+  // The recalculation used to run only while a chord button was down. A chord
+  // still sounding after release, or held by the hold button, kept its old note
+  // numbers, which were then read in the new division: a fifth of 7 is nearly a
+  // quarter-octave lower in 31, and 18 from 31 read in 12 lands an octave and a
+  // half up. Recalculate from the context the notes were last built with
+  // instead of the live buttons, which a released chord no longer holds.
+  //
+  // Each sounding voice is then moved to the NEW number for the note it was
+  // playing, found by position in the old arrays, rather than to
+  // current_chord_notes[voice]: in rhythm mode a voice plays whichever chord
+  // degree the pattern gave it, not the one at its own index.
+  bool division_changed = (EDO != previous_edo);
+  uint8_t old_chord_notes[7], old_harp_notes[12];
+  memcpy(old_chord_notes, current_chord_notes, sizeof(old_chord_notes));
+  memcpy(old_harp_notes, current_harp_notes, sizeof(old_harp_notes));
+  for (int i = 0; i < 7; i++) current_chord_notes[i] = calculate_note_chord(i, chord_context_slashed, chord_context_sharp);
+  for (int i = 0; i < 12; i++) current_harp_notes[i] = calculate_note_harp(i, chord_context_slashed, chord_context_sharp);
+
+  auto remap = [](const uint8_t *from, const uint8_t *to, uint8_t n, uint16_t note, uint16_t &out) {
+    for (uint8_t j = 0; j < n; j++) {
+      if (from[j] == note) { out = to[j]; return true; }
+    }
+    out = note;
+    return false;
+  };
+
+  // the notes the rhythm engine plays from next, updated with timer interrupts
+  // held so a step never reads half of each
+  noInterrupts();
+  for (int i = 0; i < 7; i++) {
+    uint16_t n;
+    remap(old_chord_notes, current_chord_notes, 7, current_applied_chord_notes[i], n);
+    current_applied_chord_notes[i] = n;
+    remap(old_chord_notes, current_chord_notes, 7, rythm_freeze_current_chord_notes[i], n);
+    rythm_freeze_current_chord_notes[i] = n;
+  }
+  interrupts();
+
+  // A voice whose note is not in the old arrays is left at the pitch it has
+  // when the division changes, since its number means nothing in the new one.
+  for (int i = 0; i < 4; i++) {
+    noInterrupts();
+    if (chord_envelope_array[i]->isActive()) {
+      uint16_t n;
+      if (remap(old_chord_notes, current_chord_notes, 7, chord_voice_current_note[i], n) || !division_changed) {
+        set_chord_voice_frequency(i, n);
+      }
+    }
+    interrupts();
+  }
+  for (int i = 0; i < 12; i++) {
+    if (string_enveloppe_array[i]->isActive()) {
+      uint16_t n;
+      if (remap(old_harp_notes, current_harp_notes, 12, harp_voice_current_note[i], n) || !division_changed) {
+        set_harp_voice_frequency(i, n);
+      }
+    }
+  }
+  update_chord_notes();
+  update_harp_notes();
 }
 // Function to compute MIDI note offset dynamically with circular frame shift
 int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) { 
@@ -843,19 +1016,19 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
     default: musical_index = 0; // Should not happen
   }
   if (musical_index < shift) {
-    note += 12; // Move up one octave if the note is shifted "on top"
+    note += EDO; // Move up one octave if the note is shifted "on top"
   }
   int8_t num_accidentals = key_signatures[key];   // Apply key signature (sharps or flats)
   if (key <= KEY_SIG_B) { // Sharp keys (C, G, D, A, E, B)
     for (int i = 0; i < num_accidentals; i++) {
       if (button == sharp_notes[num_accidentals - 1][i]) {
-        note += 1; // Add sharp
+        note += sharp_step; // Add sharp
       }
     }
   } else { // Flat keys (F, Bb, Eb, Ab, Db, Gb)
     for (int i = 0; i < num_accidentals; i++) {
       if (button == flat_notes[num_accidentals - 1][i]) {
-        note -= 1; // Add flat
+        note -= sharp_step; // Add flat
       }
     }
   }
@@ -870,7 +1043,7 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
 uint8_t collect_chord_tones(uint8_t (*chord)[7], uint8_t *tones) {
   uint8_t n = 0;
   for (uint8_t i = 0; i < 4; i++) {
-    uint8_t t = (*chord)[i] % 12;
+    uint8_t t = (*chord)[i] % EDO;
     bool duplicate = false;
     for (uint8_t j = 0; j < n; j++) {
       if (tones[j] == t) duplicate = true;
@@ -896,7 +1069,7 @@ int16_t inverted_voice_offset(uint8_t (*chord)[7], uint8_t voice, uint8_t invers
   uint8_t n = collect_chord_tones(chord, tones);
   if (n == 0) return 0;
   uint8_t k = voice + inversion;
-  return tones[k % n] + 12 * (k / n);
+  return tones[k % n] + EDO * (k / n);
 }
 
 // Offset of a chord tone for this voice. The four chord voices follow the
@@ -908,10 +1081,10 @@ int16_t inverted_voice_offset(uint8_t (*chord)[7], uint8_t voice, uint8_t invers
 // are in pitch order, which is what makes this expressible per voice.
 int8_t chord_spacing_shift(uint8_t voice) {
   switch (chord_spacing) {
-    case 1: return (voice == 2) ? -12 : 0;                        // drop 2
-    case 2: return (voice == 1) ? -12 : 0;                        // drop 3
-    case 3: return (voice == 2 || voice == 0) ? -12 : 0;          // drop 2 and 4
-    case 4: return (voice == 0) ? -12 : ((voice == 3) ? 12 : 0);  // spread the outer voices
+    case 1: return (voice == 2) ? -EDO : 0;                         // drop 2
+    case 2: return (voice == 1) ? -EDO : 0;                         // drop 3
+    case 3: return (voice == 2 || voice == 0) ? -EDO : 0;           // drop 2 and 4
+    case 4: return (voice == 0) ? -EDO : ((voice == 3) ? EDO : 0);  // spread the outer voices
     default: return 0;
   }
 }
@@ -930,12 +1103,12 @@ uint8_t apply_chord_spacing(uint8_t note, uint8_t voice, uint8_t level, bool sla
   // underneath it. Another octave of the slash root is fine, and thickens it;
   // any other tone below would turn a C/G into something closer to a C/E.
   if (slashed && shift < 0) {
-    int8_t slash_offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
-    int16_t slash_note = 12 * (level / 10)
+    int8_t slash_offset = sharp ? (flat_button_modifier ? -sharp_step : sharp_step) : 0;
+    int16_t slash_note = EDO * (level / 10)
       + get_root_button(key_signature_selection, chord_frame_shift, slash_value)
       + slash_offset;
     int16_t moved = (int16_t)note + shift;
-    if (moved < slash_note && (moved % 12) != (slash_note % 12)) return note;
+    if (moved < slash_note && (moved % EDO) != (slash_note % EDO)) return note;
   }
   return note + shift;
 }
@@ -955,16 +1128,16 @@ uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
   uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
   if (slashed && level % 10 == note_slash_level) {
     if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * sharp_step);
     } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * sharp_step);
     }
   } else {
     if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + chord_tone_offset(level, voice));
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * sharp_step + chord_tone_offset(level, voice));
       note = apply_chord_spacing(note, voice, level, slashed, sharp);
       } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + chord_tone_offset(level, voice));
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * sharp_step + chord_tone_offset(level, voice));
       note = apply_chord_spacing(note, voice, level, slashed, sharp);    
     }
   }
@@ -1023,9 +1196,9 @@ uint8_t calculate_static_scale_note(uint8_t string, uint8_t mode, uint8_t key) {
   uint8_t scale_degree = string % scale_length;
   uint8_t scale_root = scale_root_offsets[key];
   if (mode >= 5 && mode <= 7) {
-    scale_root = (scale_root + 12 - 3) % 12; // relative minor, a minor third down
+    scale_root = (scale_root + EDO - minor_third_steps()) % EDO; // relative minor, a minor third down
   }
-  return scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12) + 12;
+  return scale_root + scale_intervals[scale_index][scale_degree] + (octave * EDO) + EDO;
 }
 
 // Modes 8 and 9: a scale chosen to suit the chord being held, rooted on it.
@@ -1035,7 +1208,7 @@ uint8_t calculate_chord_specific_note(uint8_t string, uint8_t root_note, int8_t 
   uint8_t scale_length = chord_scale_lengths[scale_index];
   uint8_t octave = string / scale_length;
   uint8_t scale_degree = string % scale_length;
-  return root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * 12);
+  return root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * EDO);
 }
 
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
@@ -1053,7 +1226,7 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
     uint8_t root_note = slashed
       ? get_root_button(key_signature_selection, chord_frame_shift, slash_value)
       : get_root_button(key_signature_selection, chord_frame_shift, fundamental);
-    int8_t sharp_offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
+    int8_t sharp_offset = sharp ? (flat_button_modifier ? -sharp_step : sharp_step) : 0;
     return calculate_chord_specific_note(string, root_note, sharp_offset, current_chord,
                                          scalar_harp_selection == 9);
   }
@@ -1063,15 +1236,15 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
   uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
   if (slashed && level % 10 == note_slash_level) {
     if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * sharp_step);
     } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * sharp_step);
     }
   } else {
     if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * sharp_step + (*current_chord)[level % 10]);
     } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * sharp_step + (*current_chord)[level % 10]);
 
     }
   }
@@ -1412,8 +1585,8 @@ void handle_harp() {
       if (harp_started_notes[i] != 0) {
         queue_midi(false, harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
       }
-      queue_midi(true, midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, harp_channel, harp_port);
-      harp_started_notes[i] = midi_base_note_transposed + current_harp_notes[i];
+      queue_midi(true, midi_base_note_transposed + midi_out_note(current_harp_notes[i]), harp_attack_velocity, harp_channel, harp_port);
+      harp_started_notes[i] = midi_base_note_transposed + midi_out_note(current_harp_notes[i]);
     } else if (value == 1) {
       AudioNoInterrupts();
       string_enveloppe_array[i]->noteOff();
@@ -1483,6 +1656,8 @@ void detect_slash() {
 
 void update_chord_notes() {
   if (button_pushed) {
+    chord_context_sharp = sharp_active;
+    chord_context_slashed = slash_chord;
     for (int i = 0; i < 7; i++) {
       current_chord_notes[i] = calculate_note_chord(i, slash_chord, sharp_active);
     }
@@ -1501,12 +1676,14 @@ void update_chord_notes() {
 
 void update_harp_notes() {
   if (button_pushed) {
+    chord_context_sharp = sharp_active;
+    chord_context_slashed = slash_chord;
     for (int i = 0; i < 12; i++) {
       current_harp_notes[i] = calculate_note_harp(i, slash_chord, sharp_active);
       if (change_held_strings && harp_started_notes[i] != 0) {
         queue_midi(false, harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
-        queue_midi(true, midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, harp_channel, harp_port);
-        harp_started_notes[i] = midi_base_note_transposed + current_harp_notes[i];
+        queue_midi(true, midi_base_note_transposed + midi_out_note(current_harp_notes[i]), harp_attack_velocity, harp_channel, harp_port);
+        harp_started_notes[i] = midi_base_note_transposed + midi_out_note(current_harp_notes[i]);
         if (string_enveloppe_array[i]->isSustain()) {
           set_harp_voice_frequency(i, current_harp_notes[i]);
         }
