@@ -48,6 +48,30 @@ void apply_audio_parameter(int adress, int value) {
       case 38:
         chord_spacing=value; for (int i = 0; i < 7; i++) { current_chord_notes[i]=calculate_note_chord(i,slash_chord,sharp_active); } for (int i = 0; i < 4; i++) { if (chord_envelope_array[i]->isActive()) { set_chord_voice_frequency(i, current_chord_notes[i]); } }
         break;
+      case 39:
+        alt_chord_layout=value;
+        break;
+      case 202:
+        
+        break;
+      case 203:
+        
+        break;
+      case 204:
+        
+        break;
+      case 205:
+        
+        break;
+      case 206:
+        
+        break;
+      case 207:
+        
+        break;
+      case 208:
+        
+        break;
       case 24:
         main_reverb.size(value/100.0);
         break;

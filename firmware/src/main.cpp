@@ -32,6 +32,9 @@ LittleFS_Program myfs; // to save the settings
 float color_led_blink_val = 1.0;
 bool led_blinking_flag = false;
 float led_attenuation = 0.0; 
+
+
+
 //>>CHORD DEFINITION<<
 //for each chord, we first have the 4 notes of the chord, then decoration that might be used in specific modes
 uint8_t major[7] = {0, 4, 7, 12, 2, 5, 9};  // After the four notes of the chord (fundamental, third, fifth of seven, and octave of fifth, the next notes are the second fourth and sixth)
@@ -44,6 +47,38 @@ uint8_t min_seventh[7] = {0, 3, 10, 7, 1, 5, 8};
 uint8_t aug[7] = {0, 4, 8, 12, 2, 5, 9};
 uint8_t dim[7] = {0, 3, 6, 12, 2, 5, 9};
 uint8_t full_dim[7] = {0, 3, 6, 9, 2, 5, 12};
+//now the chords used for the alternate layout
+uint8_t sus_fourth[7]   = {0, 5, 7, 12, 2, 9, 10};  // sus4
+uint8_t sus_second[7]   = {0, 2, 7, 12, 5, 9, 4};   // sus2
+uint8_t seventh_sus[7]  = {0, 5, 10, 7, 2, 9, 4};   // 7sus4
+uint8_t major_ninth[7]  = {0, 4, 11, 2, 7, 5, 9};   // maj9, no fifth
+uint8_t minor_ninth[7]  = {0, 3, 10, 2, 7, 5, 8};   // min9, no fifth
+uint8_t added_ninth[7]  = {0, 4, 7, 2, 5, 9, 11};   // add9
+uint8_t six_nine[7]     = {0, 4, 9, 2, 7, 5, 11};   // 6/9
+uint8_t half_dim[7]     = {0, 3, 6, 10, 2, 5, 8};   // m7b5
+
+uint8_t alt_chord_layout = 0;   // 0 = standard chords, 1 = the assignable layout
+
+
+// Every chord the instrument can make, in one list, so a button combination can
+// be pointed at any of them rather than at a fixed table.
+uint8_t (*chord_catalogue[18])[7] = {
+  &major, &minor, &seventh, &maj_seventh, &min_seventh, &dim, &aug,
+  &maj_sixth, &min_sixth, &full_dim, &half_dim,
+  &sus_fourth, &sus_second, &seventh_sus,
+  &major_ninth, &minor_ninth, &added_ninth, &six_nine
+};
+const uint8_t chord_catalogue_size = 18;
+
+// One parameter per button combination, so a layout is part of the preset.
+const uint8_t alt_slot_adress[7] = {202, 203, 204, 205, 206, 207, 208};
+
+// What each slot plays when its parameter is 0. That matters for compatibility:
+// a preset saved before these addresses existed holds 0 in all of them, and
+// should still give the suspended and extended set rather than seven majors.
+const uint8_t alt_slot_default[7] = {11, 12, 13, 14, 15, 16, 17};
+
+uint8_t (*alt_chord_for(uint8_t slot))[7];
 uint8_t key_signature_selection = 0; // 0=C, 1=G, 2=D, 3=A, 4=E, 5=B, 6=F, 7=Bb, 8=Eb, 9=Ab, 10=Db, 11=Gb
 enum KeySig { // Enums for KeySigs
   KEY_SIG_C, KEY_SIG_G, KEY_SIG_D, KEY_SIG_A, KEY_SIG_E, KEY_SIG_B,
@@ -1264,11 +1299,29 @@ void handle_harp() {
   }
 }
 
+uint8_t (*alt_chord_for(uint8_t slot))[7] {
+  int16_t index = current_sysex_parameters[alt_slot_adress[slot]];
+  if (index <= 0 || index > chord_catalogue_size) index = alt_slot_default[slot];
+  else index -= 1;   // 1 selects the first catalogue entry, so 0 stays free for the default
+  return chord_catalogue[index];
+}
+
 void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
   if (!(button_maj || button_min || button_seventh)) {
     current_line = -1;
     return;
   }
+  if (alt_chord_layout) {
+    if (button_maj && !button_min && !button_seventh)            current_chord = alt_chord_for(0);
+    else if (!button_maj && button_min && !button_seventh)       current_chord = alt_chord_for(1);
+    else if (!button_maj && !button_min && button_seventh)       current_chord = alt_chord_for(2);
+    else if (button_maj && !button_min && button_seventh)        current_chord = alt_chord_for(3);
+    else if (!button_maj && button_min && button_seventh)        current_chord = alt_chord_for(4);
+    else if (button_maj && button_min && !button_seventh)        current_chord = alt_chord_for(5);
+    else if (button_maj && button_min && button_seventh)         current_chord = alt_chord_for(6);
+    return;
+  }
+
   if (button_maj && !button_min && !button_seventh) {
     current_chord = barry_harris_mode ? &maj_sixth : &major;
   } else if (!button_maj && button_min && !button_seventh) {
