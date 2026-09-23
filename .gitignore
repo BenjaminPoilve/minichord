@@ -28,6 +28,7 @@ pyvenv.cfg
 .venv
 venv/
 pip-selfcheck.json
+firmware/generator/__pycache__/
 
 # Hardware local folder
 hardware/PCB/miniCore/

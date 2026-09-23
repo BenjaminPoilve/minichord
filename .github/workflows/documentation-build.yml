@@ -1,0 +1,59 @@
+name: Documentation build
+
+# Builds the documentation site on every push and pull request that touches
+# it, so a change that breaks the mkdocs build is visible on the pull request
+# itself rather than needing a reviewer to check out the branch and build it
+# by hand.
+#
+# This is a build check only — documentation/site/ is committed and published
+# separately, and this workflow does not write back to it.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'documentation/**'
+      - 'firmware/minicontrol/**'
+      - '.github/workflows/documentation-build.yml'
+  pull_request:
+    paths:
+      - 'documentation/**'
+      - 'firmware/minicontrol/**'
+      - '.github/workflows/documentation-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build the docs site
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: documentation
+        run: pip install -r requirements.txt
+
+      # Mirrors documentation/build_site.sh, minus the local venv activation.
+      - name: Build the site
+        working-directory: documentation
+        run: |
+          python3 -m mkdocs build
+          cp docs/index.html site/
+          cp docs/mk25.html site/
+          cp -R ../firmware/minicontrol site/
+
+      # Handy for previewing a pull request's docs without building them locally.
+      - name: Keep the built site
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: documentation/site
+          if-no-files-found: warn
