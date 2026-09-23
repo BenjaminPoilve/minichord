@@ -480,12 +480,13 @@ void control_command(uint8_t command, uint8_t parameter) {
   switch (command) {
   case 0: // SIGNAL TO SEND BACK ALL DATA
     Serial.println("Reporting all data");
-    int8_t midi_data_array[parameter_size * 2];
+    uint8_t midi_data_array[parameter_size * 2];
     for (int i = 0; i < parameter_size; i++) {
-      midi_data_array[2 * i] = current_sysex_parameters[i] % 128;
-      midi_data_array[2 * i + 1] = current_sysex_parameters[i] / 128;
+      int16_t parameter_value = constrain(current_sysex_parameters[i], 0, 16383); // a sysex byte only carries 7 bits
+      midi_data_array[2 * i] = parameter_value % 128;
+      midi_data_array[2 * i + 1] = parameter_value / 128;
     }
-    usbMIDI.sendSysEx(parameter_size * 2, (const uint8_t *)&midi_data_array,0);
+    usbMIDI.sendSysEx(parameter_size * 2, midi_data_array,0);
     break;
   case 1: // SIGNAL TO WIPE MEMORY
     Serial.println("Wiping memory");
@@ -526,19 +527,26 @@ void processMIDI(void) {
   byte type;
   type = usbMIDI.getType();
   if (type == usbMIDI.SystemExclusive && usbMIDI.getSysExArrayLength() == 6) {
-    sysex_controler_connected=true; //we can say for sure a controller is connected
     const byte *data = usbMIDI.getSysExArray();
-    int adress = data[1] + 128 * data[2];
-    if (adress == 0) { // it is a control command
-      control_command(data[3], data[4]);
-    } else {
-      Serial.print("Received instruction on adress:");
-      Serial.print(adress);
-      int value = data[3] + 128 * data[4];
-      Serial.print(" with value:");
-      Serial.println(value);
-      current_sysex_parameters[adress] = value;
-      apply_audio_parameter(adress, value);
+    // Universal system exclusive messages (identity request, GM on/off, master volume...) start
+    // with 0x7E or 0x7F and are six bytes long too. Hosts and DAWs send them unprompted, so they
+    // must not be read as a parameter write.
+    if (data[1] != 0x7E && data[1] != 0x7F) {
+      int adress = data[1] + 128 * data[2];
+      if (adress < parameter_size) { // an adress can reach 16383, the parameter array holds 256
+        sysex_controler_connected=true; //the message was meant for us, so a controller is connected
+        if (adress == 0) { // it is a control command
+          control_command(data[3], data[4]);
+        } else {
+          Serial.print("Received instruction on adress:");
+          Serial.print(adress);
+          int value = data[3] + 128 * data[4];
+          Serial.print(" with value:");
+          Serial.println(value);
+          current_sysex_parameters[adress] = value;
+          apply_audio_parameter(adress, value);
+        }
+      }
     }
   }
   if(type==usbMIDI.Start && rythm_mode){
