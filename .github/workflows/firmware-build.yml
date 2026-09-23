@@ -1,0 +1,63 @@
+name: Firmware build
+
+# Builds the firmware for the Teensy on every push and pull request that touches
+# it, so a change that does not compile is visible on the pull request itself
+# rather than needing a reviewer to check out the branch and build it by hand.
+#
+# Build only: this does not run tests, because there are none yet. The testing
+# work in #85 is the natural next step and would slot in here as a second job.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware-build.yml'
+  pull_request:
+    paths:
+      - 'firmware/**'
+      - '.github/workflows/firmware-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for Teensy 4.0
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The Teensy toolchain is a few hundred megabytes and does not change
+      # between runs, so cache it on the contents of platformio.ini.
+      - name: Cache the PlatformIO toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: ${{ runner.os }}-pio-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build
+        working-directory: firmware
+        run: pio run -e teensy40
+
+      # Handy for testing a pull request without building it locally.
+      - name: Keep the built firmware
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-hex
+          path: firmware/.pio/build/teensy40/firmware.hex
+          if-no-files-found: warn
