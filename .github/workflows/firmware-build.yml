@@ -103,6 +103,22 @@ jobs:
         working-directory: firmware
         run: pio run -e teensy40
 
+      # firmware/firmware.hex is committed in the repo (previously updated by
+      # hand after a local build) so it's always available without needing a
+      # toolchain. Keep it in sync with what actually builds from source.
+      - name: Copy the built firmware into the repo
+        if: success()
+        working-directory: firmware
+        run: cp .pio/build/teensy40/firmware.hex firmware.hex
+
+      # Tagged [skip ci] so this push doesn't re-trigger the workflow.
+      - name: Commit the built firmware
+        if: success()
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update built firmware.hex [skip ci]"
+          file_pattern: 'firmware/firmware.hex'
+
       # Handy for testing a pull request without building it locally.
       - name: Keep the built firmware
         if: success()
