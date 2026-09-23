@@ -3,10 +3,8 @@ name: Documentation build
 # Builds the documentation site on every push and pull request that touches
 # it, so a change that breaks the mkdocs build is visible on the pull request
 # itself rather than needing a reviewer to check out the branch and build it
-# by hand.
-#
-# This is a build check only — documentation/site/ is committed and published
-# separately, and this workflow does not write back to it.
+# by hand. Also keeps the committed documentation/site/ in sync with docs/
+# and firmware/minicontrol, the way running build_site.sh by hand would.
 
 on:
   push:
@@ -22,6 +20,9 @@ on:
       - '.github/workflows/documentation-build.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build the docs site
@@ -30,6 +31,10 @@ jobs:
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
+        with:
+          # The actual branch tip, not the ephemeral PR merge ref, so the
+          # rebuilt-site commit below can be pushed straight to it.
+          ref: ${{ github.head_ref || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -48,6 +53,17 @@ jobs:
           cp docs/index.html site/
           cp docs/mk25.html site/
           cp -R ../firmware/minicontrol site/
+
+      # Puts the repo back in the state build_site.sh would have left it in
+      # locally, so nobody has to run it by hand after editing the docs or
+      # the minicontrol page. Tagged [skip ci] so this push doesn't
+      # re-trigger the workflow.
+      - name: Commit the rebuilt site
+        if: success()
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Rebuild documentation site [skip ci]"
+          file_pattern: 'documentation/site'
 
       # Handy for previewing a pull request's docs without building them locally.
       - name: Keep the built site
