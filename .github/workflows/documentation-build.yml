@@ -27,6 +27,10 @@ jobs:
   build:
     name: Build the docs site
     runs-on: ubuntu-latest
+    # Skip only the run this workflow's own auto-commit would trigger on
+    # itself — not a blanket [skip ci], which would also stop unrelated
+    # workflows (e.g. the Pages deploy) from running on the same push.
+    if: "!startsWith(github.event.head_commit.message, 'Rebuild documentation site')"
 
     steps:
       - name: Check out the code
@@ -56,13 +60,14 @@ jobs:
 
       # Puts the repo back in the state build_site.sh would have left it in
       # locally, so nobody has to run it by hand after editing the docs or
-      # the minicontrol page. Tagged [skip ci] so this push doesn't
-      # re-trigger the workflow.
+      # the minicontrol page. The job `if:` above stops this specific commit
+      # from re-triggering this job — but it still triggers static.yml,
+      # which deploys documentation/site/ to GitHub Pages on every push.
       - name: Commit the rebuilt site
         if: success()
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Rebuild documentation site [skip ci]"
+          commit_message: "Rebuild documentation site"
           file_pattern: 'documentation/site'
 
       # Handy for previewing a pull request's docs without building them locally.

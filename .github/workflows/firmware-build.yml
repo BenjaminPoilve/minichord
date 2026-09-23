@@ -26,6 +26,12 @@ jobs:
   build:
     name: Build for Teensy 4.0
     runs-on: ubuntu-latest
+    # Skip only the runs this workflow's own auto-commits would trigger on
+    # themselves — not a blanket [skip ci], which would also stop unrelated
+    # workflows (e.g. the Pages deploy) from running on the same push.
+    if: |
+      !startsWith(github.event.head_commit.message, 'Regenerate firmware sources from parameters.json') &&
+      !startsWith(github.event.head_commit.message, 'Update built firmware.hex')
 
     steps:
       - name: Check out the code
@@ -74,13 +80,13 @@ jobs:
           python3 generate.py
 
       # Puts the repo back in the state generate.sh would have left it in
-      # locally, so nobody has to remember to run it before pushing. Tagged
-      # [skip ci] so this push doesn't re-trigger the workflow.
+      # locally, so nobody has to remember to run it before pushing. The job
+      # `if:` above stops this specific commit from re-triggering this job.
       - name: Commit regenerated firmware sources
         if: steps.params.outputs.changed == 'true'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Regenerate firmware sources from parameters.json [skip ci]"
+          commit_message: "Regenerate firmware sources from parameters.json"
           file_pattern: 'firmware/include/sysex_handler.h firmware/minicontrol/index.html firmware/minicontrol/json/parameters.json'
 
       # The Teensy toolchain is a few hundred megabytes and does not change
@@ -111,12 +117,13 @@ jobs:
         working-directory: firmware
         run: cp .pio/build/teensy40/firmware.hex firmware.hex
 
-      # Tagged [skip ci] so this push doesn't re-trigger the workflow.
+      # The job `if:` above stops this specific commit from re-triggering
+      # this job.
       - name: Commit the built firmware
         if: success()
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Update built firmware.hex [skip ci]"
+          commit_message: "Update built firmware.hex"
           file_pattern: 'firmware/firmware.hex'
 
       # Handy for testing a pull request without building it locally.
