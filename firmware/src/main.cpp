@@ -1306,10 +1306,33 @@ uint8_t (*alt_chord_for(uint8_t slot))[7] {
   return chord_catalogue[index];
 }
 
+bool rollover_pending = false; // a chord change by overlap: the new line is set, the chord follows next pass
 void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
   if (!(button_maj || button_min || button_seventh)) {
+    // Releasing one chord while already pressing the next is a chord change,
+    // not a release. The new line's press transition fired while this line
+    // still owned the chord and was consumed doing nothing, so without this
+    // the old chord kept ringing and the new one could not be selected short
+    // of releasing everything and pressing again.
+    if (!inhibit_button) {
+      for (int i = 1; i < 22; i++) {
+        if (chord_matrix_array[i].read_value()) {
+          current_line = (i - 1) / 3;
+          rollover_pending = true; // pick the chord up next pass, once this line's type buttons are read
+          return;
+        }
+      }
+    }
+    rollover_pending = false;
     current_line = -1;
     return;
+  }
+  if (rollover_pending) {
+    rollover_pending = false;
+    button_pushed = true;
+    if (!continuous_chord) {
+      trigger_chord = true;
+    }
   }
   if (alt_chord_layout) {
     if (button_maj && !button_min && !button_seventh)            current_chord = alt_chord_for(0);
@@ -1339,16 +1362,50 @@ void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
   }
 }
 
+// A second line held together with the chord selects a slash bass. Raw overlap
+// alone is not intent, though: releasing one chord while pressing the next
+// overlaps for a few tens of milliseconds in ordinary legato playing, and
+// believing it immediately swapped the bass on every crossover. So the overlap
+// has to persist for slash_grace before a slash engages. A crossover never gets
+// that far, because handle_chord_type() rolls the line over as soon as the old
+// line lets go.
+const uint16_t slash_grace = 60; // ms of overlap before a slash engages
 void detect_slash() {
-  slash_chord = false;
+  static elapsedMillis overlap_timer;
+  static int8_t overlap_line = -1;
+  int8_t held_line = -1;
   for (int i = 1; i < 22; i++) {
     if (chord_matrix_array[i].read_value()) {
-      int slash_line = (i - 1) / 3;
-      if (slash_line != current_line) {
-        slash_chord = true;
-        slash_value = slash_line;
-      }
+      int8_t line = (i - 1) / 3;
+      if (line != current_line) held_line = line;
     }
+  }
+  if (held_line < 0) {
+    overlap_line = -1;
+    if (slash_chord) {
+      // The bass was let go while the chord is still held, so the plain chord
+      // has to be rebuilt. Nothing else recomputes here: button transitions
+      // only fire on presses.
+      slash_chord = false;
+      button_pushed = true;
+    }
+    return;
+  }
+  if (held_line != overlap_line) {
+    overlap_line = held_line;
+    overlap_timer = 0;
+    if (!slash_chord) return; // a new overlap starts its grace period
+  }
+  if (!slash_chord) {
+    if (overlap_timer >= slash_grace) {
+      slash_chord = true;
+      slash_value = held_line;
+      button_pushed = true;
+    }
+  } else if (slash_value != held_line) {
+    // already slashing and the bass moved to another line: deliberate, follow it
+    slash_value = held_line;
+    button_pushed = true;
   }
 }
 
