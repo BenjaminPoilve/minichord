@@ -19,6 +19,9 @@ on:
       - '.github/workflows/firmware-build.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build for Teensy 4.0
@@ -27,11 +30,58 @@ jobs:
     steps:
       - name: Check out the code
         uses: actions/checkout@v4
+        with:
+          # The actual branch tip, not the ephemeral PR merge ref, so a
+          # generated-files commit below can be pushed straight to it.
+          ref: ${{ github.head_ref || github.ref }}
+          # Full history so we can diff against the previous commit / PR base
+          # to tell whether generator/parameters.json changed.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Check whether the generator parameters changed
+        id: params
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="${{ github.event.before }}"
+          fi
+          if [ -z "$base_sha" ] || ! git cat-file -e "$base_sha" 2>/dev/null; then
+            # No usable base commit (e.g. workflow_dispatch, or a brand new
+            # branch) — regenerate to be safe.
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$base_sha" -- firmware/generator/parameters.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # generate.py turns parameters.json into firmware/include/sysex_handler.h
+      # and firmware/minicontrol/index.html (which the build below compiles
+      # against), and copies parameters.json itself to
+      # firmware/minicontrol/json/. Running it here means nobody has to run
+      # generate.sh by hand after editing parameters.json.
+      - name: Regenerate firmware sources from parameters.json
+        if: steps.params.outputs.changed == 'true'
+        working-directory: firmware/generator
+        run: |
+          pip install -r requirements.txt
+          python3 generate.py
+
+      # Puts the repo back in the state generate.sh would have left it in
+      # locally, so nobody has to remember to run it before pushing. Tagged
+      # [skip ci] so this push doesn't re-trigger the workflow.
+      - name: Commit regenerated firmware sources
+        if: steps.params.outputs.changed == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Regenerate firmware sources from parameters.json [skip ci]"
+          file_pattern: 'firmware/include/sysex_handler.h firmware/minicontrol/index.html firmware/minicontrol/json/parameters.json'
 
       # The Teensy toolchain is a few hundred megabytes and does not change
       # between runs, so cache it on the contents of platformio.ini.
