@@ -641,6 +641,11 @@ const float key_change_hues[21] = {
   };
 bool key_change_led_on = false;
 int8_t key_change_shown = -1;   // key whose colour is being held, or -1 for none
+uint32_t key_button_was_down = 0;  // raw state of each chord button on the previous pass, for key selection edges
+// Chord buttons that belong to the key change gesture: every button pressed
+// while the mode was on, and every one still down when it ended. None of them
+// may start a chord until it has been let go. See handle_chords_button().
+uint32_t key_selection_buttons = 0;
 elapsedMillis led_anim_timer;
 
 // Stepped from the main loop rather than an IntervalTimer. Teensy 4 has four
@@ -1297,8 +1302,23 @@ void handle_chords_button() {
   }
   sharp_active = chord_matrix_array[0].read_value();
 
+  static elapsedMillis open_for[22];   // how long each chord button has read open
   for (int i = 1; i < 22; i++) {
     int value = chord_matrix_array[i].read_transition();
+    // A chord button used to pick a key never starts a chord, not while the
+    // mode is on and not after it ends until it has been let go. Discarding
+    // the transitions in handle_key_change_mode() cannot guarantee that on its
+    // own: that reads near the top of loop() and this reads at the bottom, and
+    // a press crossing its debounce between the two is "not yet" there and
+    // "pressed" here. A button counts as let go once it has read open for
+    // longer than the debounce, so one still bouncing as the preset buttons
+    // are released cannot slip through either.
+    if (chord_matrix_array[i].read_value()) open_for[i] = 0;
+    if (key_selection_buttons & (1UL << i)) {
+      if (!key_change_mode && open_for[i] > 20) key_selection_buttons &= ~(1UL << i);
+      continue;
+    }
+    if (key_change_mode) continue;
     if (value > 1 && !inhibit_button) {
       button_pushed = true;
       Serial.print("Button pushed: ");
@@ -1370,6 +1390,7 @@ void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
 void detect_slash() {
   slash_chord = false;
   for (int i = 1; i < 22; i++) {
+    if (key_selection_buttons & (1UL << i)) continue;   // still held from picking a key: not a bass
     if (chord_matrix_array[i].read_value()) {
       int slash_line = (i - 1) / 3;
       if (slash_line != current_line) {
@@ -1538,6 +1559,10 @@ void handle_key_change_mode(uint8_t up_transition, uint8_t down_transition, bool
   if (!key_change_mode && up_pressed && down_pressed &&
       up_press_time < SIMULTANEOUS_WINDOW && down_press_time < SIMULTANEOUS_WINDOW) {
     key_change_mode = true;
+    key_button_was_down = 0;
+    for (int i = 1; i <= 21; i++) {
+      if (chord_matrix_array[i].read_value()) key_button_was_down |= (1UL << i);
+    }
     preset_inhibit = true;
     preset_inhibit_timer = 0;
     chord_pressed = false;
@@ -1576,8 +1601,22 @@ void handle_key_change_mode(uint8_t up_transition, uint8_t down_transition, bool
   }
 
   if (key_change_mode) {
+    // Selection reads the raw pin edges rather than read_transition(). A press
+    // only becomes a transition once ten milliseconds of steady contact have
+    // passed, measured against a live clock when it is read, and the chord
+    // handler reads the same transitions later in loop(): a press crossing its
+    // ten milliseconds between the two was taken by the chord handler, which
+    // sounded it, and never reached this, so the key did not change. Selecting
+    // a key is idempotent, so contact bounce is harmless here. The transitions
+    // are still consumed, and handle_chords_button() refuses these buttons
+    // itself, so a press in this mode cannot start the chord.
     for (int i = 1; i <= 21; i++) {
-      if (chord_matrix_array[i].read_transition() == 2) {
+      chord_matrix_array[i].read_transition();
+      bool now = chord_matrix_array[i].read_value();
+      bool was = key_button_was_down & (1UL << i);
+      if (now) key_button_was_down |= (1UL << i); else key_button_was_down &= ~(1UL << i);
+      if (now) key_selection_buttons |= (1UL << i);
+      if (now && !was) {
         chord_pressed = true;
         int user_row = 6 - ((i - 1) / 3); // hardware rows run B E A D G C F
         int col = (i - 1) % 3;            // 0 sharp, 1 natural, 2 flat
