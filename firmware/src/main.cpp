@@ -1,5 +1,6 @@
 #include "audio_definition.h"
 #include "def.h"
+#include "temperament.h"
 #include <AT42QT2120.h>
 #include <Arduino.h>
 #include <Audio.h>
@@ -12,7 +13,9 @@
 #include <potentiometer.h>
 
 //>>SOFWTARE VERSION 
-int version_ID=9; //to be read 00.03, stored at adress 7 in memory
+const uint16_t firmware_version_adress = 7;   // where the writing firmware's version is stamped
+void apply_preset_version(int bank_number);
+int version_ID=10; //to be read 00.03, stored at adress 7 in memory
 //>>BUTTON ARRAYS<<
 debouncer harp_array[12];
 debouncer chord_matrix_array[22];
@@ -37,6 +40,76 @@ float led_attenuation = 0.0;
 
 //>>CHORD DEFINITION<<
 //for each chord, we first have the 4 notes of the chord, then decoration that might be used in specific modes
+/* ---- octave divisions -------------------------------------------------------
+ *
+ * Temperaments 10 and 11 divide the octave into 19 and 31 steps instead of
+ * twelve, so every table of note numbers has a version per division: chords,
+ * scales, the chord scales of the scale-per-chord harp, the root offsets and
+ * the button base notes. apply_temperament() copies the live division's set
+ * over the working tables, and EDO, sharp_step and transpose_steps carry the
+ * arithmetic everywhere a twelve used to be hardcoded. Intervals are the
+ * nearest approximation of each just target in the division: in 31 a major
+ * third is 10 steps (387 cents, one cent from 5:4) and a fifth 18 (697).
+ */
+const uint8_t edo_steps[3] = {12, 19, 31};
+const uint8_t edo_sharp[3] = {1, 1, 2};   // how far a sharp moves: one step in 12 and 19, two in 31
+uint8_t EDO = 12;             // steps per octave of the live division
+uint8_t edo_index = 0;        // which of the three divisions is live
+uint8_t sharp_step = 1;       // how far a sharp or flat moves a letter
+uint8_t transpose_steps = 0;  // transposition in steps of the live division; equal to transpose_semitones in 12
+const int8_t edo_base_notes[3][7] = {
+  {11, 4, 9, 2, 7, 0, 5},
+  {17, 6, 14, 3, 11, 0, 8},
+  {28, 10, 23, 5, 18, 0, 13}
+};
+const int8_t edo_scale_root_offsets[3][12] = {
+  {0, 7, 2, 9, 4, 11, 5, 10, 3, 8, 1, 6},
+  {0, 11, 3, 14, 6, 17, 8, 16, 5, 13, 2, 10},
+  {0, 18, 5, 23, 10, 28, 13, 26, 8, 21, 3, 16}
+};
+const uint8_t edo_scale_intervals[3][7][8] = {
+  {{0, 2, 4, 5, 7, 9, 11, 0}, {0, 2, 4, 7, 9, 0, 0, 0}, {0, 2, 3, 7, 10, 0, 0, 0}, {0, 2, 4, 5, 7, 8, 9, 11}, {0, 2, 3, 5, 7, 8, 10, 0}, {0, 2, 3, 5, 7, 8, 11, 0}, {0, 2, 3, 7, 10, 0, 0, 0}},
+  {{0, 3, 6, 8, 11, 14, 17, 0}, {0, 3, 6, 11, 14, 0, 0, 0}, {0, 3, 5, 11, 16, 0, 0, 0}, {0, 3, 6, 8, 11, 13, 14, 17}, {0, 3, 5, 8, 11, 13, 16, 0}, {0, 3, 5, 8, 11, 13, 17, 0}, {0, 3, 5, 11, 16, 0, 0, 0}},
+  {{0, 5, 10, 13, 18, 23, 28, 0}, {0, 5, 10, 18, 23, 0, 0, 0}, {0, 5, 8, 18, 26, 0, 0, 0}, {0, 5, 10, 13, 18, 21, 23, 28}, {0, 5, 8, 13, 18, 21, 26, 0}, {0, 5, 8, 13, 18, 21, 28, 0}, {0, 5, 8, 18, 26, 0, 0, 0}}
+};
+// Rows 5, 6 and 9 carry the same named tones as the diminished and augmented
+// chords they serve: the whole tone row by its names, and the octatonic (dim)
+// and offset diminished sixth (dim7) rows with the chord's own G-flat and
+// B-double-flat in place of F-sharp and A, so the harp in modes 8 and 9 plays
+// the chord it is under.
+const uint8_t edo_chord_scale_intervals[3][15][8] = {
+  {{0, 2, 4, 7, 9, 0, 0, 0}, {0, 2, 4, 6, 9, 0, 0, 0}, {0, 3, 5, 7, 10, 0, 0, 0}, {0, 2, 4, 7, 10, 0, 0, 0}, {0, 3, 5, 7, 9, 0, 0, 0}, {0, 1, 3, 4, 6, 7, 9, 10}, {0, 2, 4, 6, 8, 10, 0, 0}, {0, 2, 4, 5, 7, 8, 9, 11}, {0, 2, 3, 5, 7, 8, 9, 11}, {0, 2, 3, 4, 6, 7, 9, 11}, {0, 2, 4, 5, 7, 9, 11, 0}, {0, 2, 3, 5, 7, 9, 10, 0}, {0, 2, 4, 6, 7, 9, 11, 0}, {0, 2, 4, 5, 7, 9, 10, 0}, {0, 2, 3, 5, 7, 8, 10, 0}},
+  {{0, 3, 6, 11, 14, 0, 0, 0}, {0, 3, 6, 9, 14, 0, 0, 0}, {0, 5, 8, 11, 16, 0, 0, 0}, {0, 3, 6, 11, 16, 0, 0, 0}, {0, 5, 8, 11, 14, 0, 0, 0}, {0, 2, 5, 6, 10, 11, 14, 16}, {0, 3, 6, 9, 12, 15, 0, 0}, {0, 3, 6, 8, 11, 13, 14, 17}, {0, 3, 5, 8, 11, 13, 14, 17}, {0, 3, 5, 6, 10, 11, 15, 17}, {0, 3, 6, 8, 11, 14, 17, 0}, {0, 3, 5, 8, 11, 14, 16, 0}, {0, 3, 6, 9, 11, 14, 17, 0}, {0, 3, 6, 8, 11, 14, 16, 0}, {0, 3, 5, 8, 11, 13, 16, 0}},
+  {{0, 5, 10, 18, 23, 0, 0, 0}, {0, 5, 10, 15, 23, 0, 0, 0}, {0, 8, 13, 18, 26, 0, 0, 0}, {0, 5, 10, 18, 26, 0, 0, 0}, {0, 8, 13, 18, 23, 0, 0, 0}, {0, 3, 8, 10, 16, 18, 23, 26}, {0, 5, 10, 15, 20, 25, 0, 0}, {0, 5, 10, 13, 18, 21, 23, 28}, {0, 5, 8, 13, 18, 21, 23, 28}, {0, 5, 8, 10, 16, 18, 24, 28}, {0, 5, 10, 13, 18, 23, 28, 0}, {0, 5, 8, 13, 18, 23, 26, 0}, {0, 5, 10, 15, 18, 23, 28, 0}, {0, 5, 10, 13, 18, 23, 26, 0}, {0, 5, 8, 13, 18, 21, 26, 0}}
+};
+const uint8_t edo_major[3][7] = {{0, 4, 7, 12, 2, 5, 9}, {0, 6, 11, 19, 3, 8, 14}, {0, 10, 18, 31, 5, 13, 23}};
+const uint8_t edo_minor[3][7] = {{0, 3, 7, 12, 1, 5, 8}, {0, 5, 11, 19, 2, 8, 13}, {0, 8, 18, 31, 3, 13, 21}};
+const uint8_t edo_maj_sixth[3][7] = {{0, 4, 7, 9, 2, 5, 12}, {0, 6, 11, 14, 3, 8, 19}, {0, 10, 18, 23, 5, 13, 31}};
+const uint8_t edo_min_sixth[3][7] = {{0, 3, 7, 9, 1, 5, 12}, {0, 5, 11, 14, 2, 8, 19}, {0, 8, 18, 23, 3, 13, 31}};
+const uint8_t edo_seventh[3][7] = {{0, 4, 10, 7, 2, 5, 9}, {0, 6, 16, 11, 3, 8, 14}, {0, 10, 26, 18, 5, 13, 23}};
+const uint8_t edo_maj_seventh[3][7] = {{0, 4, 11, 7, 2, 5, 9}, {0, 6, 17, 11, 3, 8, 14}, {0, 10, 28, 18, 5, 13, 23}};
+const uint8_t edo_min_seventh[3][7] = {{0, 3, 10, 7, 1, 5, 8}, {0, 5, 16, 11, 2, 8, 13}, {0, 8, 26, 18, 3, 13, 21}};
+// The diminished and augmented tones are the NAMED intervals, like every other
+// table here: a diminished fifth is G-flat (16 of 31, 10 of 19), not F-sharp
+// (15, 9); a diminished seventh B-double-flat (24, 15), not A (23, 14); an
+// augmented fifth G-sharp (20, 12), not A-flat (21, 13). These had been
+// generated by rounding cents, which lands on the neighbouring enharmonic --
+// the pitches twelve cannot tell apart and 19 and 31 can.
+const uint8_t edo_aug[3][7] = {{0, 4, 8, 12, 2, 5, 9}, {0, 6, 12, 19, 3, 8, 14}, {0, 10, 20, 31, 5, 13, 23}};
+const uint8_t edo_dim[3][7] = {{0, 3, 6, 12, 2, 5, 9}, {0, 5, 10, 19, 3, 8, 14}, {0, 8, 16, 31, 5, 13, 23}};
+const uint8_t edo_full_dim[3][7] = {{0, 3, 6, 9, 2, 5, 12}, {0, 5, 10, 15, 3, 8, 19}, {0, 8, 16, 24, 5, 13, 31}};
+// The alternate layout's chords (firmware #130), from the same interval names.
+// Without these they kept their twelve-note numbers in 19 and 31, read there as
+// steps: a 31-EDO sus4 of 0 5 7 is a second and a quarter-octave, not F and G.
+const uint8_t edo_half_dim[3][7] = {{0, 3, 6, 10, 2, 5, 8}, {0, 5, 10, 16, 3, 8, 13}, {0, 8, 16, 26, 5, 13, 21}};
+const uint8_t edo_sus_fourth[3][7] = {{0, 5, 7, 12, 2, 9, 10}, {0, 8, 11, 19, 3, 14, 16}, {0, 13, 18, 31, 5, 23, 26}};
+const uint8_t edo_sus_second[3][7] = {{0, 2, 7, 12, 5, 9, 4}, {0, 3, 11, 19, 8, 14, 6}, {0, 5, 18, 31, 13, 23, 10}};
+const uint8_t edo_seventh_sus[3][7] = {{0, 5, 10, 7, 2, 9, 4}, {0, 8, 16, 11, 3, 14, 6}, {0, 13, 26, 18, 5, 23, 10}};
+const uint8_t edo_major_ninth[3][7] = {{0, 4, 11, 2, 7, 5, 9}, {0, 6, 17, 3, 11, 8, 14}, {0, 10, 28, 5, 18, 13, 23}};
+const uint8_t edo_minor_ninth[3][7] = {{0, 3, 10, 2, 7, 5, 8}, {0, 5, 16, 3, 11, 8, 13}, {0, 8, 26, 5, 18, 13, 21}};
+const uint8_t edo_added_ninth[3][7] = {{0, 4, 7, 2, 5, 9, 11}, {0, 6, 11, 3, 8, 14, 17}, {0, 10, 18, 5, 13, 23, 28}};
+const uint8_t edo_six_nine[3][7] = {{0, 4, 9, 2, 7, 5, 11}, {0, 6, 14, 3, 11, 8, 17}, {0, 10, 23, 5, 18, 13, 28}};
+
 uint8_t major[7] = {0, 4, 7, 12, 2, 5, 9};  // After the four notes of the chord (fundamental, third, fifth of seven, and octave of fifth, the next notes are the second fourth and sixth)
 uint8_t minor[7] = {0, 3, 7, 12, 1, 5, 8};
 uint8_t maj_sixth[7] = {0, 4, 7, 9, 2, 5, 12};
@@ -90,7 +163,7 @@ enum Button { // Button enum in hardware order: B, E, A, D, G, C, F
 enum FrameShift { //Enums for chord frame shifts
   FRAMESHIFT_0, FRAMESHIFT_1,FRAMESHIFT_2,FRAMESHIFT_3,FRAMESHIFT_4,FRAMESHIFT_5,FRAMESHIFT_6
 };
-const int8_t base_notes[7] = {11, 4, 9, 2, 7, 0, 5}; // Base note offsets for buttons in key of C (relative to C4 = MIDI 60), in hardware order B, E, A, D, G, C, F
+int8_t base_notes[7] = {11, 4, 9, 2, 7, 0, 5}; // Base note offsets for buttons in key of C (relative to C4 = MIDI 60), in hardware order B, E, A, D, G, C, F
 const int8_t key_offsets[12] = {0, 7, 2, 9, 4, 11, 5, 10, 3, 8, 1, 6}; // Circle of fifths: semitone offset for each key’s root note relative to C: C, G, D, A, E, B, F, Bb, Eb, Ab, Db, Gb
 const int8_t key_signatures[12] = {0, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 6}; // Number of sharps or flats for each key: Sharps for C, G, D, A, E, B; flats for F, Bb, Eb, Ab, Db, Gb
 const int8_t sharp_notes[6][6] = { // Notes affected by sharps in each key, in hardware order (B, E, A, D, G, C, F)
@@ -119,13 +192,13 @@ float c_frequency = 130.81;                      // for C3
 uint8_t scalar_harp_selection = 0;
 
 // Tonic pitch class for each key signature, in the order of the KeySig enum
-const int8_t scale_root_offsets[12] = {
+int8_t scale_root_offsets[12] = {
   0, 7, 2, 9, 4, 11, // C, G, D, A, E, B
   5, 10, 3, 8, 1, 6  // F, Bb, Eb, Ab, Db, Gb
 };
 
 // Fixed scales for modes 1-7, semitones from the root
-const uint8_t scale_intervals[7][8] = {
+uint8_t scale_intervals[7][8] = {
   {0, 2, 4, 5, 7, 9, 11, 0}, // 1: Major (Ionian)
   {0, 2, 4, 7, 9, 0, 0, 0},  // 2: Major Pentatonic
   {0, 2, 3, 7, 10, 0, 0, 0}, // 3: Minor Pentatonic
@@ -137,7 +210,7 @@ const uint8_t scale_intervals[7][8] = {
 const uint8_t scale_lengths[7] = {7, 5, 5, 8, 7, 7, 5};
 
 // Scales chosen per chord type for modes 8 and 9
-const uint8_t chord_scale_intervals[15][8] = {
+uint8_t chord_scale_intervals[15][8] = {
   {0, 2, 4, 7, 9, 0, 0, 0},  //  0: Major Pentatonic, major chord
   {0, 2, 4, 6, 9, 0, 0, 0},  //  1: Lydian Pentatonic, major seventh
   {0, 3, 5, 7, 10, 0, 0, 0}, //  2: Minor Pentatonic, minor
@@ -192,20 +265,20 @@ bool chromatic_harp_mode = false; // to switch the harp to chromatic mode
 const uint16_t parameter_size = 256;
 const uint8_t preset_number = 12;
 int16_t default_bank_sysex_parameters[preset_number][parameter_size] = {
-  {0,0,50,50,512,512,512,0,0,0,192,100,49,100,184,100,157,100,0,0,0,0,0,0,43,0,50,37,38,67,0,0,0,0,0,0,0,0,0,0,0,16,0,8,8,12,42,1171,1,423,20,70,3,35,83,59,2658,1,0,0,0,0,0,0,0,1,1,1,100,1,1,0,1,1,1,1,14,0,0,70,0,0,0,100,0,6,0,0,755,195,23,61,29,0,0,0,0,162,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,13,8,100,16,0,200,0,0,50,0,50,18,32,50,0,0,10,66,353,65,995,1,569,16,141,32,83,28,48,54,1,0,0,0,56,0,389,0,20,0,0,0,0,1,1,1,0,1,1,0,1,1,1,1,0,0,0,70,0,0,0,100,0,64,0,0,80,16,4,94,753,474,70,5,100,100,100,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,6,6,32,0,6,0,16,0,6,6,32,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,194,100,85,100,60,100,61,100,0,0,10,1,0,0,0,0,0,0,0,100,0,0,0,0,0,0,0,0,0,0,4,25,8,3,29,18,65,488,3,159,25,70,5,18,4,26,6,1,77,0,587,32,0,390,0,76,1,1,100,1,1,68,17,14,22,20,0,340,1682,70,48,0,0,100,18,54,0,0,800,70,57,100,100,0,0,0,0,199,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,7,0,100,0,0,100,6,8,200,2,50,36,75,50,28,0,3,1,1,80,1218,2,1659,38,114,19,8,32,80,1,1,0,30,0,0,0,0,0,0,0,24,0,3,1,1,1,100,1,1,100,1,1,1,1,31,0,0,70,0,0,0,100,0,33,2,1,162,16,4,100,100,1436,118,100,50,32,107,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,0,13,0,4,0,7,0,0,2,13,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,192,100,49,100,184,100,157,100,0,0,30,0,1,1,87,33,62,12,80,67,0,0,0,0,0,0,0,0,0,0,0,6,3,8,8,12,42,1855,1,42,20,217,3,35,83,59,2658,1,185,0,282,14,0,247,11,1,1,1,100,1,1,0,1,1,1,1,14,0,0,70,0,0,0,100,0,23,0,0,755,195,82,61,29,0,0,0,0,162,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,13,0,100,23,8,200,0,0,50,0,50,18,32,50,0,0,10,66,353,44,1452,1,569,16,141,32,83,28,48,54,1,0,698,82,56,0,579,0,28,0,0,0,0,1,1,1,0,1,1,100,1,1,1,1,0,0,0,70,0,0,0,100,0,100,0,0,80,16,4,94,753,474,70,5,100,100,100,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,6,6,32,0,6,0,16,0,6,6,32,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,196,76,92,100,184,100,85,100,0,0,60,0,1,0,14,0,0,0,42,46,0,0,0,0,0,0,0,0,0,0,3,10,8,11,42,30,61,2137,1,106,22,140,4,35,83,24,1956,1,139,0,282,0,0,247,10,1,1,1,100,1,1,0,1,1,1,1,0,0,0,70,0,0,0,100,0,57,0,1,858,70,66,100,100,0,0,0,0,127,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17,8,200,11,0,134,10,0,100,7,50,59,15,50,0,15,10,10,45,61,1489,1,652,16,84,32,21,15,33,19,1,0,490,0,109,0,252,0,8,0,244,1,49,1,1,1,15,1,1,100,1,1,1,1,26,479,1931,70,0,50,0,100,40,78,21,0,162,16,4,100,1000,639,140,100,47,100,85,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,65,0,12,0,0,12,0,0,65,0,6,0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,146,100,76,100,85,79,184,100,0,0,110,0,0,0,57,0,0,0,67,58,0,0,0,0,0,0,0,0,0,0,0,6,8,8,65,12,38,1855,5,57,24,152,3,35,83,59,2658,6,137,0,640,8,0,247,11,1,1,1,100,1,1,131,4,116,3,1,11,424,1360,70,46,0,0,100,60,85,0,0,996,125,82,61,71,0,0,0,0,90,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,20,0,100,23,0,200,15,8,100,0,50,0,18,50,0,0,2,293,17,44,1012,1,10,33,141,32,83,28,67,239,1,0,0,0,287,0,579,0,0,0,366,0,35,5,52,12,0,1,1,100,1,1,1,1,16,0,0,70,0,0,0,100,0,50,0,0,184,16,4,100,100,657,70,86,100,100,95,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,2,4,2,15,0,2,2,6,2,6,15,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,192,60,47,56,159,100,157,100,0,0,138,1,0,0,0,0,0,0,27,74,0,0,0,0,0,0,0,0,0,0,4,14,11,3,29,18,65,1102,3,302,11,70,5,18,4,26,6,1,38,0,516,16,0,0,0,76,1,1,100,1,1,68,17,14,22,20,0,340,1682,70,48,0,0,100,18,58,0,0,800,70,43,100,100,0,0,0,0,200,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,10,11,100,9,0,200,4,8,200,0,50,36,75,50,0,0,3,1,1,80,1855,2,769,15,114,19,8,32,80,1,1,0,30,0,11,0,467,0,35,0,24,0,3,1,1,1,100,1,1,100,1,1,1,1,0,341,2164,70,54,0,0,100,36,42,0,1,80,16,4,100,20,2101,70,100,6,22,55,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,4,8,17,0,12,0,1,2,4,8,16,6,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,192,100,61,100,130,100,83,100,0,0,175,0,0,0,0,0,0,0,0,35,0,0,0,0,0,0,0,0,0,0,0,12,9,11,1,1,70,2141,1,383,17,302,101,103,34,30,1,12,0,0,367,17,0,363,5,1,1,1,86,1,1,0,1,1,1,1,8,0,0,70,0,0,0,100,0,33,50,0,5000,70,100,0,0,0,0,0,0,90,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,9,9,200,13,6,99,6,0,50,27,50,50,50,50,0,0,345,1,1,80,800,32,2200,0,70,1,1,1,100,1,1,0,30,0,0,0,166,0,6,0,0,0,0,1,1,1,0,1,1,100,1,1,1,1,0,0,0,70,0,0,0,100,0,59,100,0,80,16,4,100,100,2366,70,100,40,23,57,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,4,4,16,16,12,0,1,6,8,6,0,6,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,146,100,76,100,85,79,184,100,0,0,220,0,0,0,0,0,0,86,55,63,0,0,0,0,0,0,0,0,0,0,0,6,8,8,65,12,38,1855,5,57,24,152,3,35,83,59,2658,6,137,0,640,8,0,247,11,1,1,1,100,1,1,131,4,116,3,1,11,424,1360,70,46,0,0,100,60,84,0,0,996,125,82,61,71,0,0,0,0,90,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,20,0,100,23,0,200,15,8,100,0,50,0,18,50,0,0,2,293,17,44,1012,1,10,33,141,32,83,28,67,239,1,0,0,0,287,0,579,0,0,0,366,0,35,5,52,12,0,1,1,100,1,1,1,1,16,0,0,70,0,0,0,100,0,50,0,0,184,16,4,100,100,657,70,86,100,100,95,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,2,4,2,15,0,2,2,6,2,6,15,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,196,100,47,56,159,100,157,100,0,0,253,1,0,0,0,0,0,0,0,59,0,0,0,0,0,0,0,0,0,0,4,15,11,3,29,18,65,1102,3,302,11,70,5,18,4,26,6,1,38,0,516,16,0,0,12,76,1,22,100,1,1,68,17,14,22,20,0,340,1682,70,48,0,0,100,18,58,0,0,800,70,43,100,100,0,0,0,0,158,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,10,0,100,9,0,200,4,8,200,0,50,36,75,50,0,0,3,1,1,80,1855,2,769,15,114,19,8,32,80,1,1,0,30,0,11,0,467,0,22,0,24,0,3,1,1,1,100,1,1,100,1,1,1,1,0,341,2164,70,54,0,0,100,36,42,0,1,80,16,4,100,20,532,70,100,6,82,96,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,4,8,17,0,12,0,1,2,4,8,16,6,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,149,69,76,100,85,79,184,100,0,0,266,0,0,0,0,0,0,0,65,70,0,0,0,0,0,0,0,0,0,0,0,5,0,8,65,12,38,1855,5,57,24,152,3,35,83,59,2658,6,137,0,640,8,0,247,11,1,1,1,100,1,1,131,4,116,3,1,0,424,1360,70,46,0,0,100,60,81,0,0,996,125,82,61,71,0,0,0,0,108,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,20,12,100,23,0,200,15,8,100,0,50,45,17,0,0,0,2,293,17,44,1012,1,10,33,141,32,83,28,67,239,1,0,0,0,287,0,579,0,0,0,366,0,35,5,52,12,0,1,1,100,1,1,1,1,16,0,0,70,0,0,0,100,0,50,0,0,184,16,4,100,100,857,70,42,100,100,158,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,2,4,2,15,0,2,2,6,2,6,15,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,192,55,61,100,184,100,85,100,0,0,310,0,0,0,86,0,56,87,37,60,0,0,0,0,0,0,0,0,0,0,4,15,12,36,42,30,59,1410,1,30,33,140,4,35,83,24,615,1,94,0,282,15,0,247,0,1,1,1,100,1,1,0,1,1,1,1,0,0,0,70,0,0,0,100,0,40,0,1,858,70,46,100,82,0,0,0,0,124,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,16,8,200,18,0,134,21,0,200,2,50,59,15,50,18,15,10,66,43,35,711,1,271,16,84,32,83,733,31,54,1,0,698,0,220,0,252,0,8,0,244,1,49,1,1,1,15,1,1,100,1,1,1,1,26,479,1931,70,0,50,0,100,34,75,0,0,162,16,4,100,1000,1889,116,49,100,42,129,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,65,0,12,0,0,12,0,0,65,0,6,0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-  {0,0,50,50,512,512,512,0,0,0,194,100,85,100,60,100,61,100,0,0,340,1,0,0,0,0,0,0,0,62,0,0,0,0,0,0,0,0,0,0,4,25,3,3,29,18,65,488,3,159,25,70,5,18,4,26,40,1,77,0,587,32,0,715,11,76,1,1,100,1,1,68,17,14,22,20,17,340,1682,70,48,0,0,100,18,54,0,0,800,70,57,100,100,0,0,0,0,199,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,3,1,100,0,0,100,6,8,200,2,50,36,75,50,28,0,3,1,1,80,1218,2,706,38,114,19,8,32,80,1,1,0,30,0,0,0,0,0,0,0,24,0,3,1,1,1,100,1,1,100,1,1,1,1,31,0,0,70,0,0,0,100,0,33,2,1,162,16,4,100,100,678,118,100,50,32,168,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,0,13,0,4,0,7,0,0,2,13,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
+  {0,0,50,50,512,512,512,0,0,0,192,100,49,100,184,100,157,100,0,0,0,0,0,0,43,0,50,37,38,67,0,0,0,0,0,0,0,0,0,0,0,16,0,8,8,12,42,1171,1,423,20,70,3,35,83,59,2658,1,0,0,0,0,0,0,0,1,1,1,100,1,1,0,1,1,1,1,14,0,0,70,0,0,0,100,0,6,0,0,755,195,23,61,29,0,0,0,0,162,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,2,13,8,100,16,0,200,0,0,50,0,50,18,32,50,0,0,10,66,353,65,995,1,569,16,141,32,83,28,48,54,1,0,0,0,56,0,389,0,20,0,0,0,0,1,1,1,0,1,1,0,1,1,1,1,0,0,0,70,0,0,0,100,0,64,0,0,80,16,4,94,753,474,70,5,100,100,100,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,6,6,32,0,6,0,16,0,6,6,32,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,194,100,85,100,60,100,61,100,0,0,10,1,0,0,0,0,0,0,0,100,0,0,0,0,0,0,0,0,0,0,4,25,8,3,29,18,65,488,3,159,25,70,5,18,4,26,6,1,77,0,587,32,0,390,0,76,1,1,100,1,1,68,17,14,22,20,0,340,1682,70,48,0,0,100,18,54,0,0,800,70,57,100,100,0,0,0,0,199,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,4,7,0,100,0,0,100,6,8,200,2,50,36,75,50,28,0,3,1,1,80,1218,2,1659,38,114,19,8,32,80,1,1,0,30,0,0,0,0,0,0,0,24,0,3,1,1,1,100,1,1,100,1,1,1,1,31,0,0,70,0,0,0,100,0,33,2,1,162,16,4,100,100,1436,118,100,50,32,107,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,0,13,0,4,0,7,0,0,2,13,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,192,100,49,100,184,100,157,100,0,0,30,0,1,1,87,33,62,12,80,67,0,0,0,0,0,0,0,0,0,0,0,6,3,8,8,12,42,1855,1,42,20,217,3,35,83,59,2658,1,185,0,282,14,0,247,11,1,1,1,100,1,1,0,1,1,1,1,14,0,0,70,0,0,0,100,0,23,0,0,755,195,82,61,29,0,0,0,0,162,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,1,13,0,100,23,8,200,0,0,50,0,50,18,32,50,0,0,10,66,353,44,1452,1,569,16,141,32,83,28,48,54,1,0,698,82,56,0,579,0,28,0,0,0,0,1,1,1,0,1,1,100,1,1,1,1,0,0,0,70,0,0,0,100,0,100,0,0,80,16,4,94,753,474,70,5,100,100,100,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,6,6,32,0,6,0,16,0,6,6,32,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,196,76,92,100,184,100,85,100,0,0,60,0,1,0,14,0,0,0,42,46,0,0,0,0,0,0,0,0,0,0,3,10,8,11,42,30,61,2137,1,106,22,140,4,35,83,24,1956,1,139,0,282,0,0,247,10,1,1,1,100,1,1,0,1,1,1,1,0,0,0,70,0,0,0,100,0,57,0,1,858,70,66,100,100,0,0,0,0,127,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,0,17,8,200,11,0,134,10,0,100,7,50,59,15,50,0,15,10,10,45,61,1489,1,652,16,84,32,21,15,33,19,1,0,490,0,109,0,252,0,8,0,244,1,49,1,1,1,15,1,1,100,1,1,1,1,26,479,1931,70,0,50,0,100,40,78,21,0,162,16,4,100,1000,639,140,100,47,100,85,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,65,0,12,0,0,12,0,0,65,0,6,0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,146,100,76,100,85,79,184,100,0,0,110,0,0,0,57,0,0,0,67,58,0,0,0,0,0,0,0,0,0,0,0,6,8,8,65,12,38,1855,5,57,24,152,3,35,83,59,2658,6,137,0,640,8,0,247,11,1,1,1,100,1,1,131,4,116,3,1,11,424,1360,70,46,0,0,100,60,85,0,0,996,125,82,61,71,0,0,0,0,90,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,0,20,0,100,23,0,200,15,8,100,0,50,0,18,50,0,0,2,293,17,44,1012,1,10,33,141,32,83,28,67,239,1,0,0,0,287,0,579,0,0,0,366,0,35,5,52,12,0,1,1,100,1,1,1,1,16,0,0,70,0,0,0,100,0,50,0,0,184,16,4,100,100,657,70,86,100,100,95,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,2,4,2,15,0,2,2,6,2,6,15,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,192,60,47,56,159,100,157,100,0,0,138,1,0,0,0,0,0,0,27,74,0,0,0,0,0,0,0,0,0,0,4,14,11,3,29,18,65,1102,3,302,11,70,5,18,4,26,6,1,38,0,516,16,0,0,0,76,1,1,100,1,1,68,17,14,22,20,0,340,1682,70,48,0,0,100,18,58,0,0,800,70,43,100,100,0,0,0,0,200,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,4,10,11,100,9,0,200,4,8,200,0,50,36,75,50,0,0,3,1,1,80,1855,2,769,15,114,19,8,32,80,1,1,0,30,0,11,0,467,0,35,0,24,0,3,1,1,1,100,1,1,100,1,1,1,1,0,341,2164,70,54,0,0,100,36,42,0,1,80,16,4,100,20,2101,70,100,6,22,55,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,4,8,17,0,12,0,1,2,4,8,16,6,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,192,100,61,100,130,100,83,100,0,0,175,0,0,0,0,0,0,0,0,35,0,0,0,0,0,0,0,0,0,0,0,12,9,11,1,1,70,2141,1,383,17,302,101,103,34,30,1,12,0,0,367,17,0,363,5,1,1,1,86,1,1,0,1,1,1,1,8,0,0,70,0,0,0,100,0,33,50,0,5000,70,100,0,0,0,0,0,0,90,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,5,9,9,200,13,6,99,6,0,50,27,50,50,50,50,0,0,345,1,1,80,800,32,2200,0,70,1,1,1,100,1,1,0,30,0,0,0,166,0,6,0,0,0,0,1,1,1,0,1,1,100,1,1,1,1,0,0,0,70,0,0,0,100,0,59,100,0,80,16,4,100,100,2366,70,100,40,23,57,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,4,4,16,16,12,0,1,6,8,6,0,6,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,146,100,76,100,85,79,184,100,0,0,220,0,0,0,0,0,0,86,55,63,0,0,0,0,0,0,0,0,0,0,0,6,8,8,65,12,38,1855,5,57,24,152,3,35,83,59,2658,6,137,0,640,8,0,247,11,1,1,1,100,1,1,131,4,116,3,1,11,424,1360,70,46,0,0,100,60,84,0,0,996,125,82,61,71,0,0,0,0,90,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,0,20,0,100,23,0,200,15,8,100,0,50,0,18,50,0,0,2,293,17,44,1012,1,10,33,141,32,83,28,67,239,1,0,0,0,287,0,579,0,0,0,366,0,35,5,52,12,0,1,1,100,1,1,1,1,16,0,0,70,0,0,0,100,0,50,0,0,184,16,4,100,100,657,70,86,100,100,95,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,2,4,2,15,0,2,2,6,2,6,15,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,196,100,47,56,159,100,157,100,0,0,253,1,0,0,0,0,0,0,0,59,0,0,0,0,0,0,0,0,0,0,4,15,11,3,29,18,65,1102,3,302,11,70,5,18,4,26,6,1,38,0,516,16,0,0,12,76,1,22,100,1,1,68,17,14,22,20,0,340,1682,70,48,0,0,100,18,58,0,0,800,70,43,100,100,0,0,0,0,158,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,4,10,0,100,9,0,200,4,8,200,0,50,36,75,50,0,0,3,1,1,80,1855,2,769,15,114,19,8,32,80,1,1,0,30,0,11,0,467,0,22,0,24,0,3,1,1,1,100,1,1,100,1,1,1,1,0,341,2164,70,54,0,0,100,36,42,0,1,80,16,4,100,20,532,70,100,6,82,96,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,4,8,17,0,12,0,1,2,4,8,16,6,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,149,69,76,100,85,79,184,100,0,0,266,0,0,0,0,0,0,0,65,70,0,0,0,0,0,0,0,0,0,0,0,5,0,8,65,12,38,1855,5,57,24,152,3,35,83,59,2658,6,137,0,640,8,0,247,11,1,1,1,100,1,1,131,4,116,3,1,0,424,1360,70,46,0,0,100,60,81,0,0,996,125,82,61,71,0,0,0,0,108,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,1,20,12,100,23,0,200,15,8,100,0,50,45,17,0,0,0,2,293,17,44,1012,1,10,33,141,32,83,28,67,239,1,0,0,0,287,0,579,0,0,0,366,0,35,5,52,12,0,1,1,100,1,1,1,1,16,0,0,70,0,0,0,100,0,50,0,0,184,16,4,100,100,857,70,42,100,100,158,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,2,4,2,15,0,2,2,6,2,6,15,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,192,55,61,100,184,100,85,100,0,0,310,0,0,0,86,0,56,87,37,60,0,0,0,0,0,0,0,0,0,0,4,15,12,36,42,30,59,1410,1,30,33,140,4,35,83,24,615,1,94,0,282,15,0,247,0,1,1,1,100,1,1,0,1,1,1,1,0,0,0,70,0,0,0,100,0,40,0,1,858,70,46,100,82,0,0,0,0,124,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,1,16,8,200,18,0,134,21,0,200,2,50,59,15,50,18,15,10,66,43,35,711,1,271,16,84,32,83,733,31,54,1,0,698,0,220,0,252,0,8,0,244,1,49,1,1,1,15,1,1,100,1,1,1,1,26,479,1931,70,0,50,0,100,34,75,0,0,162,16,4,100,1000,1889,116,49,100,42,129,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,65,0,12,0,0,12,0,0,65,0,6,0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+  {0,0,50,50,512,512,512,0,0,0,194,100,85,100,60,100,61,100,0,0,340,1,0,0,0,0,0,0,0,62,0,0,0,0,0,0,0,0,0,0,4,25,3,3,29,18,65,488,3,159,25,70,5,18,4,26,40,1,77,0,587,32,0,715,11,76,1,1,100,1,1,68,17,14,22,20,17,340,1682,70,48,0,0,100,18,54,0,0,800,70,57,100,100,0,0,0,0,199,0,2,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,1,3,1,100,0,0,100,6,8,200,2,50,36,75,50,28,0,3,1,1,80,1218,2,706,38,114,19,8,32,80,1,1,0,30,0,0,0,0,0,0,0,24,0,3,1,1,1,100,1,1,100,1,1,1,1,31,0,0,70,0,0,0,100,0,33,2,1,162,16,4,100,100,678,118,100,50,32,168,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,0,0,0,13,0,4,0,7,0,0,2,13,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
 }; 
-int16_t current_sysex_parameters[parameter_size] = {0,0,50,50,512,512,512,1,0,0,192,100,49,100,184,100,157,100,0,0,0,0,0,0,0,0,0,0,0,67,0,0,0,0,0,0,0,0,0,0,0,16,0,8,8,12,42,1171,1,423,20,70,3,35,83,59,2658,1,0,0,0,0,0,0,0,1,1,1,100,1,1,0,1,1,1,1,14,0,0,70,0,0,0,100,0,6,0,0,755,195,23,61,29,0,0,0,0,162,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,13,8,100,16,0,200,0,0,50,0,50,18,32,50,0,0,10,66,353,65,995,1,569,16,141,32,83,28,48,54,1,0,0,0,56,0,389,0,20,0,0,0,0,1,1,1,0,1,1,0,1,1,1,1,0,0,0,70,0,0,0,100,0,38,0,0,80,16,4,94,753,474,70,5,100,100,100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,6,6,32,0,6,0,16,0,6,6,32,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+int16_t current_sysex_parameters[parameter_size] = {0,0,50,50,512,512,512,1,0,0,192,100,49,100,184,100,157,100,0,0,0,0,0,0,0,0,0,0,0,67,0,0,0,0,0,0,0,0,0,0,0,16,0,8,8,12,42,1171,1,423,20,70,3,35,83,59,2658,1,0,0,0,0,0,0,0,1,1,1,100,1,1,0,1,1,1,1,14,0,0,70,0,0,0,100,0,6,0,0,755,195,23,61,29,0,0,0,0,162,0,0,0,0,0,0,0,0,0,0,0,4400,0,0,0,0,0,0,0,0,0,0,2,13,8,100,16,0,200,0,0,50,0,50,18,32,50,0,0,10,66,353,65,995,1,569,16,141,32,83,28,48,54,1,0,0,0,56,0,389,0,20,0,0,0,0,1,1,1,0,1,1,0,1,1,1,1,0,0,0,70,0,0,0,100,0,38,0,0,80,16,4,94,753,474,70,5,100,100,100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,6,6,32,0,6,0,16,0,6,6,32,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 const char *bank_name[preset_number] = {"a.txt", "b.txt", "c.txt", "d.txt", "e.txt", "f.txt", "g.txt", "h.txt", "i.txt", "j.txt", "k.txt", "l.txt"};
 int8_t current_bank_number = 0;
 float bank_led_hue = 0;
@@ -303,8 +376,8 @@ int8_t chord_shuffling_array[6][7] = {
 int8_t chord_shuffling_selection = 0;
 uint8_t chord_inversion = 0; // 0 = root position, 1-3 = successive inversions
 uint8_t chord_spacing = 0;   // 0 = close, 1 = drop 2, 2 = drop 3, 3 = drop 2+4, 4 = spread
-const int8_t chord_note_floor = 12;  // below this the chord voices turn to mud
-const int8_t chord_note_ceiling = 96;
+int16_t chord_note_floor = 12;    // one and eight octaves in the live division,  // below this the chord voices turn to mud
+int16_t chord_note_ceiling = 96;  // set with it in apply_temperament
 // retrigger release for chord delayed note
 int chord_retrigger_release=0;
 int glide_length=0;
@@ -440,12 +513,89 @@ void recalculate_timer();
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp);
 uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp);
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
+void apply_temperament(uint8_t t);
+
+/* ---- temperament ------------------------------------------------------------
+ *
+ * Equal temperament divides the octave into twelve identical steps: every key
+ * sounds the same and no interval but the octave is quite in tune. Temperaments
+ * 1 to 9 move each of the twelve pitch classes by a few cents, the way a
+ * keyboard was tuned before equal temperament took over. Temperaments 10 and 11
+ * keep none of the twelve notes at all: they divide the octave into 19 and 31
+ * equal steps, where the meantone thirds live and the septimal intervals twelve
+ * notes cannot spell become playable.
+ *
+ * The offsets are in temperament_profiles.h, generated by
+ * generator/temperaments.py from how each temperament is built (its tempered
+ * fifths, its ratios, or its division); the arithmetic is in temperament.h,
+ * where generator/temperament_test.cpp can check it on a computer. A has no
+ * offset in the twelve-note ones, so A sounds at the master tuning pitch there.
+ * The tuning is fixed to the keyboard, so which keys are sweet does not follow
+ * the key signature.
+ *
+ * In the twelve-note temperaments only the sound changes: note numbers, and so
+ * MIDI out, are untouched. In 19 and 31 the note numbers themselves are steps
+ * of the division, so MIDI out goes through midi_out_note() below, which
+ * rescales to the nearest semitone: the recording lands in the right register
+ * and is audibly an approximation, rather than silently absurd.
+ */
+uint8_t temperament_selection = 0;
+
+// Frequency ratio of a note in the selected temperament and division.
+static inline double temper_ratio(double note) {
+  return temperament_ratio(temperament_selection, EDO, note);
+}
+
+// a minor third in the live division, for the relative-minor harp modes
+static inline int8_t minor_third_steps() {
+  return edo_index == 0 ? 3 : (edo_index == 1 ? 5 : 8);
+}
+
+// MIDI note numbers are integers, so a 31st of an octave has nowhere to go.
+static inline uint8_t midi_out_note(int16_t note) {
+  int32_t v = (edo_index == 0) ? note : (int32_t)lroundf(note * 12.0f / (float)EDO);
+  if (v < 0) v = 0;
+  if (v > 127) v = 127;
+  return (uint8_t)v;
+}
+
+// the harmonic context the note arrays were last built with, so they can be
+// rebuilt when the division changes even though no button is down
+bool chord_context_sharp = false;
+bool chord_context_slashed = false;
+void update_chord_notes();
+void update_harp_notes();
+void retune_active_voices();
 void refresh_chord_filter();
 // the note frequency each chord voice is currently sounding, kept so the filter
 // corner can be recomputed for a voice without touching anything else about it
 float chord_voice_note_freq[4] = {0, 0, 0, 0};
+uint16_t chord_voice_current_note[4] = {0, 0, 0, 0};   // last note each chord voice was tuned to, so a tuning change can re-apply it
+uint16_t harp_voice_current_note[12] = {0};           // same for the harp strings
 void calculate_ws_array();
 void rythm_tick_function();
+void set_chord_voice_frequency(uint8_t i, uint16_t current_note);
+void set_harp_voice_frequency(uint8_t i, uint16_t current_note);
+
+// Re-applies the stored note of every sounding voice, so a reference-pitch
+// change lands on held notes too. Same-division only: apply_temperament() does
+// its own remap, since note numbers change meaning across a division change.
+void retune_active_voices() {
+  for (uint8_t i = 0; i < 4; i++) {
+    noInterrupts();
+    if (chord_envelope_array[i]->isActive()) {
+      set_chord_voice_frequency(i, chord_voice_current_note[i]);
+    }
+    interrupts();
+  }
+  for (uint8_t i = 0; i < 12; i++) {
+    noInterrupts();
+    if (string_enveloppe_array[i]->isActive()) {
+      set_harp_voice_frequency(i, harp_voice_current_note[i]);
+    }
+    interrupts();
+  }
+}
 
 //-->>LED HSV CALCULATION
 // function to calculate led RGB value, thank you SO
@@ -558,6 +708,7 @@ void control_command(uint8_t command, uint8_t parameter) {
 }
 // the autogenerated code (see ./generator for the script)
 #include <sysex_handler.h>
+#include <parameter_introduction.h>
 void processMIDI(void) {
   byte type;
   type = usbMIDI.getType();
@@ -633,8 +784,8 @@ void play_single_note(int i, IntervalTimer *timer) {
   if(chord_started_notes[i]!=0){
     queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;}
-  queue_midi(true, midi_base_note_transposed+ current_applied_chord_notes[i],chord_attack_velocity,chord_channel, chord_port);
-  chord_started_notes[i]=midi_base_note_transposed+ current_applied_chord_notes[i];
+  queue_midi(true, midi_base_note_transposed+ midi_out_note(current_applied_chord_notes[i]),chord_attack_velocity,chord_channel, chord_port);
+  chord_started_notes[i]=midi_base_note_transposed+ midi_out_note(current_applied_chord_notes[i]);
 }
 
 void play_note_selected_duration(int i,int current_note){
@@ -647,8 +798,8 @@ void play_note_selected_duration(int i,int current_note){
   if(chord_started_notes[i]!=0){
     queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;}
-  queue_midi(true, midi_base_note_transposed+current_note,chord_attack_velocity,chord_channel, chord_port);
-  chord_started_notes[i]=midi_base_note_transposed+current_note;
+  queue_midi(true, midi_base_note_transposed+midi_out_note(current_note),chord_attack_velocity,chord_channel, chord_port);
+  chord_started_notes[i]=midi_base_note_transposed+midi_out_note(current_note);
 }
 
 void turn_off_led(IntervalTimer *timer) {
@@ -687,15 +838,16 @@ void refresh_chord_filter() {
 }
 
 void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
-  float note_freq = pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
+  chord_voice_current_note[i] = current_note;
+  float note_freq = pow(2,chord_octave_change)*c_frequency/8 * temper_ratio(current_note+transpose_steps); //down one octave to let more possibilities with the shuffling array
   if(glide_length>0){
         //ok so first we need to set the "middle note". Keep in mind that the signal will be +/-1 and will go +/- 2 octaves (frequencyModulation(2), hence the /24.0 below)
     //let's do a trick to select a middle note: get the level (relative to the C) and the note and do a modulo 
-    int note_level=12*chord_octave_change-3*12+current_note+transpose_semitones;
+    int note_level=EDO*chord_octave_change-3*EDO+current_note+transpose_steps;
     int base_octave =chord_octave_change-2+(chord_shuffling_array[chord_shuffling_selection][i])/10;
-    int middle_note=base_octave*12+transpose_semitones; 
+    int middle_note=base_octave*EDO+transpose_steps; 
     int note_delta=note_level-middle_note;
-    float middle_freq=c_frequency*pow(2,middle_note/12.0);
+    float middle_freq=c_frequency*temper_ratio(middle_note);
 
     AudioNoInterrupts();
     chord_voice_note_freq[i] = note_freq;
@@ -707,11 +859,20 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
     chord_osc_1_array[i]->frequency(osc_1_freq_multiplier * middle_freq);
     chord_osc_2_array[i]->frequency(osc_2_freq_multiplier * middle_freq);
     chord_osc_3_array[i]->frequency(osc_3_freq_multiplier * middle_freq);
-    chord_freq_dc_array[i]->amplitude(note_delta/24.0,glide_length);
+    // The oscillators sit on the middle note and the DC offset reaches the
+    // voice's own note through frequencyModulation(2), two octaves per unit.
+    // note_delta/24 is that distance only in equal temperament with twelve
+    // steps; anywhere else the offset has to come from the real ratio, or every
+    // glide voice lands on an equal-tempered pitch (and in 19 or 31 steps, on
+    // an unrelated one, since a step is read as a semitone).
+    float glide_offset = (temperament_selection == 0)
+      ? note_delta/24.0
+      : log2f(note_freq / middle_freq) / 2.0f;
+    chord_freq_dc_array[i]->amplitude(glide_offset,glide_length);
     // chord_voice_filter_array[i]->frequency(1*freq);
     AudioInterrupts();
   }else{
-    float note_freq = pow(2,chord_octave_change)*c_frequency/8 * pow(2, (current_note+transpose_semitones) / 12.0); //down one octave to let more possibilities with the shuffling array
+    float note_freq = pow(2,chord_octave_change)*c_frequency/8 * temper_ratio(current_note+transpose_steps); //down one octave to let more possibilities with the shuffling array
     AudioNoInterrupts();
     chord_voice_note_freq[i] = note_freq;
     chords_vibrato_lfo.frequency(chord_vibrato_base_freq + chord_vibrato_keytrack * current_chord_notes[0]);
@@ -729,24 +890,144 @@ void set_chord_voice_frequency(uint8_t i, uint16_t current_note) {
 
   // Reached from BOTH the main loop (update_chord_notes) and PIT ISR context
   // (play_single_note, rythm_tick_function), so it must queue rather than send.
-  if(chord_started_notes[i]!=0 && chord_started_notes[i]!=midi_base_note_transposed+current_note){
+  if(chord_started_notes[i]!=0 && chord_started_notes[i]!=midi_base_note_transposed+midi_out_note(current_note)){
     //we need to change the note without triggering the change, ie a pitch bend
     queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
     chord_started_notes[i]=0;
-    queue_midi(true, midi_base_note_transposed+current_note,chord_attack_velocity,chord_channel, chord_port);
-    chord_started_notes[i]=midi_base_note_transposed+ current_note;
+    queue_midi(true, midi_base_note_transposed+midi_out_note(current_note),chord_attack_velocity,chord_channel, chord_port);
+    chord_started_notes[i]=midi_base_note_transposed+ midi_out_note(current_note);
   }
 }
 // setting the harp
 void set_harp_voice_frequency(uint8_t i, uint16_t current_note) {
-  float note_freq =  pow(2,harp_octave_change)*c_frequency/4 * pow(2, (current_note+transpose_semitones) / 12.0);
-  float transient_freq =  64.0*c_frequency/4 *pow(2, ((current_note+transpose_semitones)%12+transient_note_level) / 12.0);
+  harp_voice_current_note[i] = current_note;
+  float note_freq =  pow(2,harp_octave_change)*c_frequency/4 * temper_ratio(current_note+transpose_steps);
+  float transient_freq =  64.0*c_frequency/4 *temper_ratio((current_note+transpose_steps)%EDO+transient_note_level);
+  // the transient is an interval above the string's own note, so it moves with it
   AudioNoInterrupts();
   string_waveform_array[i]->frequency(note_freq);
   string_transient_waveform_array[i]->frequency(transient_freq);
   string_filter_array[i]->frequency(string_filter_base_freq + note_freq * string_filter_keytrack);
   // string_vibrato_1.offset(0);
   AudioInterrupts();
+}
+/* Re-apply every sounding voice's own note after c_frequency changes, so master
+ * tuning is audible on a held chord while the control moves. Each voice is
+ * retuned to the note it last played, so the note number does not move and no
+ * MIDI is sent. Interrupts are held per voice because the rhythm and delayed
+ * chord timers can retune a voice from ISR context; without the lock, a timer
+ * could move the voice to a new note between reading the stored note and
+ * re-applying it, and this would put the old note back. */
+
+// Selecting a temperament retunes what is sounding, so a held or sustained
+// chord moves to the new tuning rather than waiting for the next note. The note
+// numbers do not change, only their pitch, so no MIDI is sent.
+void apply_temperament(uint8_t t) {
+  if (t >= temperament_count) t = 0;
+  uint8_t previous_edo = EDO;
+  temperament_selection = t;
+  edo_index = temperament_profiles[t].edo_index;
+  EDO = edo_steps[edo_index];
+  sharp_step = edo_sharp[edo_index];
+  transpose_steps = (transpose_semitones * EDO + 6) / 12; // one semitone of transposition is EDO/12 steps here
+  chord_note_floor = EDO;      // the spacing rails are octaves, so they move with the division
+  chord_note_ceiling = 8 * EDO;
+  memcpy(base_notes, edo_base_notes[edo_index], sizeof(base_notes));
+  memcpy(scale_root_offsets, edo_scale_root_offsets[edo_index], sizeof(scale_root_offsets));
+  memcpy(scale_intervals, edo_scale_intervals[edo_index], sizeof(scale_intervals));
+  memcpy(chord_scale_intervals, edo_chord_scale_intervals[edo_index], sizeof(chord_scale_intervals));
+  memcpy(major, edo_major[edo_index], 7);
+  memcpy(minor, edo_minor[edo_index], 7);
+  memcpy(maj_sixth, edo_maj_sixth[edo_index], 7);
+  memcpy(min_sixth, edo_min_sixth[edo_index], 7);
+  memcpy(seventh, edo_seventh[edo_index], 7);
+  memcpy(maj_seventh, edo_maj_seventh[edo_index], 7);
+  memcpy(min_seventh, edo_min_seventh[edo_index], 7);
+  memcpy(aug, edo_aug[edo_index], 7);
+  memcpy(dim, edo_dim[edo_index], 7);
+  memcpy(full_dim, edo_full_dim[edo_index], 7);
+  memcpy(half_dim, edo_half_dim[edo_index], 7);
+  memcpy(sus_fourth, edo_sus_fourth[edo_index], 7);
+  memcpy(sus_second, edo_sus_second[edo_index], 7);
+  memcpy(seventh_sus, edo_seventh_sus[edo_index], 7);
+  memcpy(major_ninth, edo_major_ninth[edo_index], 7);
+  memcpy(minor_ninth, edo_minor_ninth[edo_index], 7);
+  memcpy(added_ninth, edo_added_ninth[edo_index], 7);
+  memcpy(six_nine, edo_six_nine[edo_index], 7);
+
+  /* Every note number just changed meaning: in 31 a fifth is 18 rather than 7.
+   * So the note arrays are recomputed unconditionally — update_chord_notes and
+   * update_harp_notes are both gated on button_pushed, which a held chord does
+   * not set — and then pushed into whatever is still sounding, the same way a
+   * master tuning change is.
+   *
+   * set_chord_voice_frequency also sends a MIDI note off and on when the note
+   * number moves, and going from 12 to 31 moves all of them, so a held chord
+   * retriggers over MIDI here. That is right for a pitch change of this size and
+   * matches what master tuning already does, but it is why this belongs on a
+   * deliberate setting change and nowhere near a knob sweep.
+   */
+  //
+  // The recalculation used to run only while a chord button was down. A chord
+  // still sounding after release, or held by the hold button, kept its old note
+  // numbers, which were then read in the new division: a fifth of 7 is nearly a
+  // quarter-octave lower in 31, and 18 from 31 read in 12 lands an octave and a
+  // half up. Recalculate from the context the notes were last built with
+  // instead of the live buttons, which a released chord no longer holds.
+  //
+  // Each sounding voice is then moved to the NEW number for the note it was
+  // playing, found by position in the old arrays, rather than to
+  // current_chord_notes[voice]: in rhythm mode a voice plays whichever chord
+  // degree the pattern gave it, not the one at its own index.
+  bool division_changed = (EDO != previous_edo);
+  uint8_t old_chord_notes[7], old_harp_notes[12];
+  memcpy(old_chord_notes, current_chord_notes, sizeof(old_chord_notes));
+  memcpy(old_harp_notes, current_harp_notes, sizeof(old_harp_notes));
+  for (int i = 0; i < 7; i++) current_chord_notes[i] = calculate_note_chord(i, chord_context_slashed, chord_context_sharp);
+  for (int i = 0; i < 12; i++) current_harp_notes[i] = calculate_note_harp(i, chord_context_slashed, chord_context_sharp);
+
+  auto remap = [](const uint8_t *from, const uint8_t *to, uint8_t n, uint16_t note, uint16_t &out) {
+    for (uint8_t j = 0; j < n; j++) {
+      if (from[j] == note) { out = to[j]; return true; }
+    }
+    out = note;
+    return false;
+  };
+
+  // the notes the rhythm engine plays from next, updated with timer interrupts
+  // held so a step never reads half of each
+  noInterrupts();
+  for (int i = 0; i < 7; i++) {
+    uint16_t n;
+    remap(old_chord_notes, current_chord_notes, 7, current_applied_chord_notes[i], n);
+    current_applied_chord_notes[i] = n;
+    remap(old_chord_notes, current_chord_notes, 7, rythm_freeze_current_chord_notes[i], n);
+    rythm_freeze_current_chord_notes[i] = n;
+  }
+  interrupts();
+
+  // A voice whose note is not in the old arrays is left at the pitch it has
+  // when the division changes, since its number means nothing in the new one.
+  for (int i = 0; i < 4; i++) {
+    noInterrupts();
+    if (chord_envelope_array[i]->isActive()) {
+      uint16_t n;
+      if (remap(old_chord_notes, current_chord_notes, 7, chord_voice_current_note[i], n) || !division_changed) {
+        set_chord_voice_frequency(i, n);
+      }
+    }
+    interrupts();
+  }
+  for (int i = 0; i < 12; i++) {
+    if (string_enveloppe_array[i]->isActive()) {
+      uint16_t n;
+      if (remap(old_harp_notes, current_harp_notes, 12, harp_voice_current_note[i], n) || !division_changed) {
+        set_harp_voice_frequency(i, n);
+      }
+    }
+  }
+  update_chord_notes();
+  update_harp_notes();
 }
 // Function to compute MIDI note offset dynamically with circular frame shift
 int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) { 
@@ -765,19 +1046,19 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
     default: musical_index = 0; // Should not happen
   }
   if (musical_index < shift) {
-    note += 12; // Move up one octave if the note is shifted "on top"
+    note += EDO; // Move up one octave if the note is shifted "on top"
   }
   int8_t num_accidentals = key_signatures[key];   // Apply key signature (sharps or flats)
   if (key <= KEY_SIG_B) { // Sharp keys (C, G, D, A, E, B)
     for (int i = 0; i < num_accidentals; i++) {
       if (button == sharp_notes[num_accidentals - 1][i]) {
-        note += 1; // Add sharp
+        note += sharp_step; // Add sharp
       }
     }
   } else { // Flat keys (F, Bb, Eb, Ab, Db, Gb)
     for (int i = 0; i < num_accidentals; i++) {
       if (button == flat_notes[num_accidentals - 1][i]) {
-        note -= 1; // Add flat
+        note -= sharp_step; // Add flat
       }
     }
   }
@@ -792,7 +1073,7 @@ int8_t get_root_button(uint8_t key, uint8_t shift, uint8_t button) {
 uint8_t collect_chord_tones(uint8_t (*chord)[7], uint8_t *tones) {
   uint8_t n = 0;
   for (uint8_t i = 0; i < 4; i++) {
-    uint8_t t = (*chord)[i] % 12;
+    uint8_t t = (*chord)[i] % EDO;
     bool duplicate = false;
     for (uint8_t j = 0; j < n; j++) {
       if (tones[j] == t) duplicate = true;
@@ -818,7 +1099,7 @@ int16_t inverted_voice_offset(uint8_t (*chord)[7], uint8_t voice, uint8_t invers
   uint8_t n = collect_chord_tones(chord, tones);
   if (n == 0) return 0;
   uint8_t k = voice + inversion;
-  return tones[k % n] + 12 * (k / n);
+  return tones[k % n] + EDO * (k / n);
 }
 
 // Offset of a chord tone for this voice. The four chord voices follow the
@@ -830,10 +1111,10 @@ int16_t inverted_voice_offset(uint8_t (*chord)[7], uint8_t voice, uint8_t invers
 // are in pitch order, which is what makes this expressible per voice.
 int8_t chord_spacing_shift(uint8_t voice) {
   switch (chord_spacing) {
-    case 1: return (voice == 2) ? -12 : 0;                        // drop 2
-    case 2: return (voice == 1) ? -12 : 0;                        // drop 3
-    case 3: return (voice == 2 || voice == 0) ? -12 : 0;          // drop 2 and 4
-    case 4: return (voice == 0) ? -12 : ((voice == 3) ? 12 : 0);  // spread the outer voices
+    case 1: return (voice == 2) ? -EDO : 0;                         // drop 2
+    case 2: return (voice == 1) ? -EDO : 0;                         // drop 3
+    case 3: return (voice == 2 || voice == 0) ? -EDO : 0;           // drop 2 and 4
+    case 4: return (voice == 0) ? -EDO : ((voice == 3) ? EDO : 0);  // spread the outer voices
     default: return 0;
   }
 }
@@ -852,12 +1133,12 @@ uint8_t apply_chord_spacing(uint8_t note, uint8_t voice, uint8_t level, bool sla
   // underneath it. Another octave of the slash root is fine, and thickens it;
   // any other tone below would turn a C/G into something closer to a C/E.
   if (slashed && shift < 0) {
-    int8_t slash_offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
-    int16_t slash_note = 12 * (level / 10)
+    int8_t slash_offset = sharp ? (flat_button_modifier ? -sharp_step : sharp_step) : 0;
+    int16_t slash_note = EDO * (level / 10)
       + get_root_button(key_signature_selection, chord_frame_shift, slash_value)
       + slash_offset;
     int16_t moved = (int16_t)note + shift;
-    if (moved < slash_note && (moved % 12) != (slash_note % 12)) return note;
+    if (moved < slash_note && (moved % EDO) != (slash_note % EDO)) return note;
   }
   return note + shift;
 }
@@ -877,16 +1158,16 @@ uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
   uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
   if (slashed && level % 10 == note_slash_level) {
     if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * sharp_step);
     } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * sharp_step);
     }
   } else {
     if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + chord_tone_offset(level, voice));
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * sharp_step + chord_tone_offset(level, voice));
       note = apply_chord_spacing(note, voice, level, slashed, sharp);
       } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + chord_tone_offset(level, voice));
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * sharp_step + chord_tone_offset(level, voice));
       note = apply_chord_spacing(note, voice, level, slashed, sharp);    
     }
   }
@@ -945,9 +1226,9 @@ uint8_t calculate_static_scale_note(uint8_t string, uint8_t mode, uint8_t key) {
   uint8_t scale_degree = string % scale_length;
   uint8_t scale_root = scale_root_offsets[key];
   if (mode >= 5 && mode <= 7) {
-    scale_root = (scale_root + 12 - 3) % 12; // relative minor, a minor third down
+    scale_root = (scale_root + EDO - minor_third_steps()) % EDO; // relative minor, a minor third down
   }
-  return scale_root + scale_intervals[scale_index][scale_degree] + (octave * 12) + 12;
+  return scale_root + scale_intervals[scale_index][scale_degree] + (octave * EDO) + EDO;
 }
 
 // Modes 8 and 9: a scale chosen to suit the chord being held, rooted on it.
@@ -957,7 +1238,7 @@ uint8_t calculate_chord_specific_note(uint8_t string, uint8_t root_note, int8_t 
   uint8_t scale_length = chord_scale_lengths[scale_index];
   uint8_t octave = string / scale_length;
   uint8_t scale_degree = string % scale_length;
-  return root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * 12);
+  return root_note + sharp_offset + chord_scale_intervals[scale_index][scale_degree] + (octave * EDO);
 }
 
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
@@ -975,7 +1256,7 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
     uint8_t root_note = slashed
       ? get_root_button(key_signature_selection, chord_frame_shift, slash_value)
       : get_root_button(key_signature_selection, chord_frame_shift, fundamental);
-    int8_t sharp_offset = sharp ? (flat_button_modifier ? -1 : 1) : 0;
+    int8_t sharp_offset = sharp ? (flat_button_modifier ? -sharp_step : sharp_step) : 0;
     return calculate_chord_specific_note(string, root_note, sharp_offset, current_chord,
                                          scalar_harp_selection == 9);
   }
@@ -985,15 +1266,15 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
   uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
   if (slashed && level % 10 == note_slash_level) {
     if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * 1.0);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * sharp_step);
     } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * 1.0);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * sharp_step);
     }
   } else {
     if (!flat_button_modifier) {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * 1.0 + (*current_chord)[level % 10]);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * sharp_step + (*current_chord)[level % 10]);
     } else {
-      note = (12 * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * 1.0 + (*current_chord)[level % 10]);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * sharp_step + (*current_chord)[level % 10]);
 
     }
   }
@@ -1074,6 +1355,55 @@ void deserialize(String input, int16_t data_array[]) {
   }
 }
 
+/* ---- preset versioning ------------------------------------------------------
+ *
+ * Every preset stores all 256 slots, so an address that did not exist when the
+ * preset was written reads back as a stored 0 — indistinguishable from someone
+ * having set it to 0 on purpose. That is why a new parameter whose sensible
+ * default is not 0 cannot be added without changing what existing presets sound
+ * like, and why anything with a non-zero default has had to live outside the
+ * preset array.
+ *
+ * The pieces to fix it were already here and not wired together: version_ID has
+ * always been declared, the comment has always said address 7, parameters.json
+ * has always carried introduction_version, and the editor already reads a
+ * firmware version from address 7. Nothing ever wrote it.
+ *
+ * So: stamp the version into address 7 on save, and on load give any parameter
+ * newer than the stored version its factory default instead of the stored 0.
+ * Presets written before this change carry 0 there, which reads as "older than
+ * everything" and defaults anything introduced after version 0 — which is the
+ * right answer for them.
+ */
+void apply_preset_version(int bank_number) {
+  const int16_t stored_version = current_sysex_parameters[firmware_version_adress];
+  /* A 0 here means the preset was written straight from the factory defaults and
+   * never saved by a player: the handler for address 7 has existed since version
+   * 2 and ignores the incoming value, so any preset a firmware has saved carries
+   * the version that saved it. Defaulting such a bank is therefore right rather
+   * than destructive — it is a factory bank, and this restores it to the factory
+   * values of the running firmware. */
+  if (stored_version >= version_ID) {
+    return;   // written by this firmware or newer: nothing to migrate
+  }
+  uint16_t restored = 0;
+  for (uint16_t i = 2; i < parameter_size; i++) {
+    if (i == firmware_version_adress) continue;
+    if (parameter_introduction[i] > stored_version) {
+      current_sysex_parameters[i] = default_bank_sysex_parameters[bank_number][i];
+      restored++;
+    }
+  }
+  current_sysex_parameters[firmware_version_adress] = version_ID;
+  if (restored) {
+    Serial.print("Preset written by version ");
+    Serial.print(stored_version);
+    Serial.print(", defaulted ");
+    Serial.print(restored);
+    Serial.println(" parameter(s) introduced since");
+  }
+}
+
 void save_config(int bank_number, bool default_save) {
   if (bank_number < 0 || bank_number >= preset_number) {
     Serial.printf("Error: Invalid bank_number %d in save_config\n", bank_number);
@@ -1089,6 +1419,7 @@ void save_config(int bank_number, bool default_save) {
   if (default_save) {
     // if we need to put the default in memory
     Serial.println("Writing the default file");
+    default_bank_sysex_parameters[bank_number][firmware_version_adress] = version_ID;
     Serial.println(bank_name[bank_number]);
     String return_data = serialize(default_bank_sysex_parameters[bank_number], parameter_size);
     dataFile.println(return_data);
@@ -1132,6 +1463,7 @@ void load_config(int bank_number) {
       data_string += char(entry.read());
     }
     deserialize(data_string, current_sysex_parameters);
+    apply_preset_version(bank_number);
     Serial.print("Loaded preset: ");
     Serial.println(entry.name());
     entry.close();
@@ -1283,8 +1615,8 @@ void handle_harp() {
       if (harp_started_notes[i] != 0) {
         queue_midi(false, harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
       }
-      queue_midi(true, midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, harp_channel, harp_port);
-      harp_started_notes[i] = midi_base_note_transposed + current_harp_notes[i];
+      queue_midi(true, midi_base_note_transposed + midi_out_note(current_harp_notes[i]), harp_attack_velocity, harp_channel, harp_port);
+      harp_started_notes[i] = midi_base_note_transposed + midi_out_note(current_harp_notes[i]);
     } else if (value == 1) {
       AudioNoInterrupts();
       string_enveloppe_array[i]->noteOff();
@@ -1354,6 +1686,8 @@ void detect_slash() {
 
 void update_chord_notes() {
   if (button_pushed) {
+    chord_context_sharp = sharp_active;
+    chord_context_slashed = slash_chord;
     for (int i = 0; i < 7; i++) {
       current_chord_notes[i] = calculate_note_chord(i, slash_chord, sharp_active);
     }
@@ -1372,12 +1706,14 @@ void update_chord_notes() {
 
 void update_harp_notes() {
   if (button_pushed) {
+    chord_context_sharp = sharp_active;
+    chord_context_slashed = slash_chord;
     for (int i = 0; i < 12; i++) {
       current_harp_notes[i] = calculate_note_harp(i, slash_chord, sharp_active);
       if (change_held_strings && harp_started_notes[i] != 0) {
         queue_midi(false, harp_started_notes[i], harp_release_velocity, harp_channel, harp_port);
-        queue_midi(true, midi_base_note_transposed + current_harp_notes[i], harp_attack_velocity, harp_channel, harp_port);
-        harp_started_notes[i] = midi_base_note_transposed + current_harp_notes[i];
+        queue_midi(true, midi_base_note_transposed + midi_out_note(current_harp_notes[i]), harp_attack_velocity, harp_channel, harp_port);
+        harp_started_notes[i] = midi_base_note_transposed + midi_out_note(current_harp_notes[i]);
         if (string_enveloppe_array[i]->isSustain()) {
           set_harp_voice_frequency(i, current_harp_notes[i]);
         }
