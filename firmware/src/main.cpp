@@ -180,6 +180,11 @@ bool continuous_chord = false; // wether the chord is held continuously. Control
 bool rythm_mode = false;
 bool barry_harris_mode = false;
 IntervalTimer note_timer[4]; // timers for delayed chord enveloppe
+// Whether each chord voice has been released since its last note on. A release
+// has to reach a voice in whatever stage it is in, not only once it has
+// settled into sustain, and remembering that it was sent lets the loop, which
+// runs the check every pass, send it once.
+volatile bool chord_voice_released[4] = {true, true, true, true};
 bool inhibit_button=false;
 
 //>>SWITCHING LOGIC PARAMETERS<<
@@ -629,6 +634,7 @@ void play_single_note(int i, IntervalTimer *timer) {
   chord_vibrato_dc_envelope_array[i]->noteOn();
   chord_envelope_array[i]->noteOn();
   chord_envelope_filter_array[i]->noteOn();
+  chord_voice_released[i] = false;
   // ISR context: queue only, never touch usbMIDI here.
   if(chord_started_notes[i]!=0){
     queue_midi(false, chord_started_notes[i],chord_release_velocity,chord_channel, chord_port);
@@ -642,6 +648,7 @@ void play_note_selected_duration(int i,int current_note){
   chord_vibrato_dc_envelope_array[i]->noteOn();
   chord_envelope_array[i]->noteOn();
   chord_envelope_filter_array[i]->noteOn();
+  chord_voice_released[i] = false;
   note_off_timing[i]=0;
   // ISR context: queue only, never touch usbMIDI here.
   if(chord_started_notes[i]!=0){
@@ -1122,6 +1129,7 @@ void load_config(int bank_number) {
     chord_vibrato_dc_envelope_array[i]->noteOff();
     chord_envelope_array[i]->noteOff();
     chord_envelope_filter_array[i]->noteOff();
+    chord_voice_released[i] = true;
   }
   trigger_chord = true; //to be ready to retrigger if needed
 
@@ -1391,12 +1399,20 @@ void stop_chord_notes() {
   for (int i = 0; i < 4; i++) note_timer[i].end();
   AudioNoInterrupts();
   for (int i = 0; i < 4; i++) {
-    if (chord_envelope_array[i]->isSustain()) {
+    // Released in any stage, not only sustain: a chord let go during a long
+    // attack, hold or decay used to play that stage out before it started to
+    // release, so the release came seconds after the hand did. The sustain
+    // test stays as the safety net it always was: a voice caught in its
+    // retrigger ramp ignores a note off, and it is released once it settles.
+    noInterrupts();
+    if (chord_envelope_array[i]->isSustain() || (chord_envelope_array[i]->isActive() && !chord_voice_released[i])) {
       chord_vibrato_envelope_array[i]->noteOff();
       chord_vibrato_dc_envelope_array[i]->noteOff();
       chord_envelope_array[i]->noteOff();
       chord_envelope_filter_array[i]->noteOff();
+      chord_voice_released[i] = true;
     }
+    interrupts();
     // Sent regardless of the internal envelope: an external synth holds the note
     // until it receives the Note Off.
     if (chord_started_notes[i] != 0) {
@@ -1410,12 +1426,18 @@ void stop_chord_notes() {
 void handle_rhythm_mode() {
   for (int i = 0; i < 4; i++) {
     if (note_off_timing[i] > note_pushed_duration) {
-      if (chord_envelope_array[i]->isSustain()) {
+      // As in stop_chord_notes(). The rhythm timer starts notes from an
+      // interrupt, so the check and the flag are one step: a note starting in
+      // between would otherwise be marked released without ever being.
+      noInterrupts();
+      if (chord_envelope_array[i]->isSustain() || (chord_envelope_array[i]->isActive() && !chord_voice_released[i])) {
         chord_vibrato_envelope_array[i]->noteOff();
         chord_vibrato_dc_envelope_array[i]->noteOff();
         chord_envelope_array[i]->noteOff();
         chord_envelope_filter_array[i]->noteOff();
+        chord_voice_released[i] = true;
       }
+      interrupts();
       // See stop_chord_notes().
       if (chord_started_notes[i] != 0) {
         queue_midi(false, chord_started_notes[i], chord_release_velocity, chord_channel, chord_port);
