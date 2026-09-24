@@ -35,12 +35,14 @@ void potentiometer::set_alternate_default(int alternate_initial_value){
 }
 
 
-// Looks up the bounds declared for a discrete parameter. Returns false for
-// float parameters, which keep the existing proportional behaviour.
+// Looks up the bounds declared for a selector parameter. Returns false for
+// everything else -- floats, and integers with a wide continuous range such as
+// times and frequencies -- which keep the existing proportional behaviour.
+// generator/generate.py decides which parameters are selectors.
 bool potentiometer::declared_bounds(int adress, int16_t &min_out, int16_t &max_out){
     for(unsigned i=0;i<sizeof(parameter_lookup)/sizeof(parameter_lookup[0]);i++){
         if(parameter_lookup[i].sysex_adress==adress){
-            if(!parameter_lookup[i].is_integer) return false;
+            if(!parameter_lookup[i].is_selector) return false;
             min_out=parameter_lookup[i].min_value;
             max_out=parameter_lookup[i].max_value;
             return true;
