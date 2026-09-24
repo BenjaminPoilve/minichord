@@ -1306,7 +1306,9 @@ uint8_t (*alt_chord_for(uint8_t slot))[7] {
   return chord_catalogue[index];
 }
 
-bool rollover_pending = false; // a chord change by overlap: the new line is set, the chord follows next pass
+bool rollover_pending = false;      // a chord change by overlap: the new line is set, the chord follows next pass
+bool chord_release_pending = false; // the chord hand lifted while slashing; waiting to see if the bass follows
+const uint16_t slash_release_grace = 80; // ms to tell a full slash release from a deliberate exit
 void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
   if (!(button_maj || button_min || button_seventh)) {
     // Releasing one chord while already pressing the next is a chord change,
@@ -1317,6 +1319,23 @@ void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
     if (!inhibit_button) {
       for (int i = 1; i < 22; i++) {
         if (chord_matrix_array[i].read_value()) {
+          // While a slash is engaged, the chord hand lifting is only half a
+          // gesture: if the bass follows within the release grace this was the
+          // slash being let go, and it should end as itself, not become the
+          // bass line's chord on the way out. The slash keeps sounding while
+          // we wait, so the wait is inaudible.
+          if (slash_chord) {
+            static elapsedMillis chord_release_timer;
+            if (!chord_release_pending) {
+              chord_release_pending = true;
+              chord_release_timer = 0;
+              return;
+            }
+            if (chord_release_timer < slash_release_grace) return;
+            chord_release_pending = false;
+          }
+          // the gesture that ends here is over: the new line is a chord, not a bass
+          slash_chord = false;
           current_line = (i - 1) / 3;
           rollover_pending = true; // pick the chord up next pass, once this line's type buttons are read
           return;
@@ -1324,6 +1343,10 @@ void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
       }
     }
     rollover_pending = false;
+    chord_release_pending = false;
+    // Whatever slash state the gesture ended in is over with it; a stale flag
+    // here would slash the next chord played from silence.
+    slash_chord = false;
     current_line = -1;
     return;
   }
@@ -1369,7 +1392,16 @@ void handle_chord_type(bool button_maj, bool button_min, bool button_seventh) {
 // has to persist for slash_grace before a slash engages. A crossover never gets
 // that far, because handle_chord_type() rolls the line over as soon as the old
 // line lets go.
-const uint16_t slash_grace = 60; // ms of overlap before a slash engages
+const uint16_t slash_grace = 60;         // ms of overlap before a slash engages
+// Letting a slash chord go entirely means two lines release a few tens of
+// milliseconds apart, in whichever order the fingers land. Neither release may
+// be believed on its own while a slash is engaged, or the chord is forced to
+// become something on the way out: the bass line promoted to a chord, or the
+// plain chord rebuilt, for the length of the release tail. So while slashing,
+// both exits wait out slash_release_grace; if the other line lets go within
+// it, the slash simply ends as itself. Legato is unaffected, since a crossover
+// never engages the slash in the first place. The constant lives with the
+// rollover state above handle_chord_type(), which also needs it.
 void detect_slash() {
   static elapsedMillis overlap_timer;
   static int8_t overlap_line = -1;
@@ -1380,17 +1412,27 @@ void detect_slash() {
       if (line != current_line) held_line = line;
     }
   }
+  static elapsedMillis bass_release_timer;
+  static bool bass_release_pending = false;
   if (held_line < 0) {
     overlap_line = -1;
     if (slash_chord) {
-      // The bass was let go while the chord is still held, so the plain chord
-      // has to be rebuilt. Nothing else recomputes here: button transitions
-      // only fire on presses.
-      slash_chord = false;
-      button_pushed = true;
+      // The bass was let go while the chord is still held. If the chord hand
+      // follows within the release grace, this was a full release of the slash
+      // and nothing should be rebuilt; if the chord stays held, the player
+      // dropped the bass on purpose and the plain chord comes back.
+      if (!bass_release_pending) {
+        bass_release_pending = true;
+        bass_release_timer = 0;
+      } else if (bass_release_timer >= slash_release_grace) {
+        bass_release_pending = false;
+        slash_chord = false;
+        button_pushed = true;
+      }
     }
     return;
   }
+  bass_release_pending = false;
   if (held_line != overlap_line) {
     overlap_line = held_line;
     overlap_timer = 0;
