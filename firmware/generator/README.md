@@ -15,7 +15,7 @@ python3 generate.py
 
 ## Adding a temperament
 
-Add an entry at the end of `PROFILES` in `temperaments.py`. Never insert or reorder: a temperament's position is the number stored in presets. Describe it the way a tuner would, with `fifths()` (the twelve fifths round the circle as deviations from pure, one left as `None` to close the circle) or `ratios()` (the twelve notes as ratios to C), then run both scripts.
+Add an entry at the end of `PROFILES` in `temperaments.py`. Never insert or reorder: a temperament's position is the number stored in presets. (24-EDO sits between 19 and 31 because the three divisions arrived together, before any of them was released.) Describe it the way a tuner would, with `fifths()` (the twelve fifths round the circle as deviations from pure, one left as `None` to close the circle) or `ratios()` (the twelve notes as ratios to C), then run both scripts.
 
 `temperament_test.cpp` checks the arithmetic in `include/temperament.h` against the generated table, including the chord glide path:
 

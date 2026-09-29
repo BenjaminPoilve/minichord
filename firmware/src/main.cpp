@@ -42,73 +42,88 @@ float led_attenuation = 0.0;
 //for each chord, we first have the 4 notes of the chord, then decoration that might be used in specific modes
 /* ---- octave divisions -------------------------------------------------------
  *
- * Temperaments 10 and 11 divide the octave into 19 and 31 steps instead of
- * twelve, so every table of note numbers has a version per division: chords,
+ * Temperaments 10, 11 and 12 divide the octave into 19, 24 and 31 steps instead
+ * of twelve, so every table of note numbers has a version per division: chords,
  * scales, the chord scales of the scale-per-chord harp, the root offsets and
  * the button base notes. apply_temperament() copies the live division's set
  * over the working tables, and EDO, sharp_step and transpose_steps carry the
  * arithmetic everywhere a twelve used to be hardcoded. Intervals are the
  * nearest approximation of each just target in the division: in 31 a major
  * third is 10 steps (387 cents, one cent from 5:4) and a fifth 18 (697).
+ *
+ * 24 is the odd one out: not a meantone but twelve with a note between each
+ * pair, the quarter-tones. Its tables are twelve's doubled, and the modifier
+ * moves a letter by one step instead of two (modifier_step), so it plays the
+ * note between the frets, while key signatures still sharpen by a semitone.
  */
-const uint8_t edo_steps[3] = {12, 19, 31};
-const uint8_t edo_sharp[3] = {1, 1, 2};   // how far a sharp moves: one step in 12 and 19, two in 31
+const uint8_t edo_steps[4] = {12, 19, 31, 24};
+const uint8_t edo_sharp[4] = {1, 1, 2, 2};   // how far a key signature's sharp moves a letter: one step in 12 and 19, two in 31 and 24
+// How far the MODIFIER moves a letter. In 12, 19 and 31 it is the chromatic semitone, the same as a
+// key signature's sharp. In 24 it is one step, a quarter-tone: 24 holds twelve inside it, so a
+// semitone modifier would only double twelve, while a quarter-tone one reaches the twelve notes in
+// between. Key signatures still move a letter by the semitone (edo_sharp), so G major is G major.
+const uint8_t edo_modifier[4] = {1, 1, 2, 1};
 uint8_t EDO = 12;             // steps per octave of the live division
-uint8_t edo_index = 0;        // which of the three divisions is live
-uint8_t sharp_step = 1;       // how far a sharp or flat moves a letter
+uint8_t edo_index = 0;        // which of the four divisions is live
+uint8_t sharp_step = 1;       // how far a key signature's sharp or flat moves a letter
+uint8_t modifier_step = 1;    // how far the modifier moves one: the same, but a quarter-tone in 24
 uint8_t transpose_steps = 0;  // transposition in steps of the live division; equal to transpose_semitones in 12
-const int8_t edo_base_notes[3][7] = {
+const int8_t edo_base_notes[4][7] = {
   {11, 4, 9, 2, 7, 0, 5},
   {17, 6, 14, 3, 11, 0, 8},
-  {28, 10, 23, 5, 18, 0, 13}
+  {28, 10, 23, 5, 18, 0, 13},
+  {22, 8, 18, 4, 14, 0, 10}
 };
-const int8_t edo_scale_root_offsets[3][12] = {
+const int8_t edo_scale_root_offsets[4][12] = {
   {0, 7, 2, 9, 4, 11, 5, 10, 3, 8, 1, 6},
   {0, 11, 3, 14, 6, 17, 8, 16, 5, 13, 2, 10},
-  {0, 18, 5, 23, 10, 28, 13, 26, 8, 21, 3, 16}
+  {0, 18, 5, 23, 10, 28, 13, 26, 8, 21, 3, 16},
+  {0, 14, 4, 18, 8, 22, 10, 20, 6, 16, 2, 12}
 };
-const uint8_t edo_scale_intervals[3][7][8] = {
+const uint8_t edo_scale_intervals[4][7][8] = {
   {{0, 2, 4, 5, 7, 9, 11, 0}, {0, 2, 4, 7, 9, 0, 0, 0}, {0, 2, 3, 7, 10, 0, 0, 0}, {0, 2, 4, 5, 7, 8, 9, 11}, {0, 2, 3, 5, 7, 8, 10, 0}, {0, 2, 3, 5, 7, 8, 11, 0}, {0, 2, 3, 7, 10, 0, 0, 0}},
   {{0, 3, 6, 8, 11, 14, 17, 0}, {0, 3, 6, 11, 14, 0, 0, 0}, {0, 3, 5, 11, 16, 0, 0, 0}, {0, 3, 6, 8, 11, 13, 14, 17}, {0, 3, 5, 8, 11, 13, 16, 0}, {0, 3, 5, 8, 11, 13, 17, 0}, {0, 3, 5, 11, 16, 0, 0, 0}},
-  {{0, 5, 10, 13, 18, 23, 28, 0}, {0, 5, 10, 18, 23, 0, 0, 0}, {0, 5, 8, 18, 26, 0, 0, 0}, {0, 5, 10, 13, 18, 21, 23, 28}, {0, 5, 8, 13, 18, 21, 26, 0}, {0, 5, 8, 13, 18, 21, 28, 0}, {0, 5, 8, 18, 26, 0, 0, 0}}
+  {{0, 5, 10, 13, 18, 23, 28, 0}, {0, 5, 10, 18, 23, 0, 0, 0}, {0, 5, 8, 18, 26, 0, 0, 0}, {0, 5, 10, 13, 18, 21, 23, 28}, {0, 5, 8, 13, 18, 21, 26, 0}, {0, 5, 8, 13, 18, 21, 28, 0}, {0, 5, 8, 18, 26, 0, 0, 0}},
+  {{0, 4, 8, 10, 14, 18, 22, 0}, {0, 4, 8, 14, 18, 0, 0, 0}, {0, 4, 6, 14, 20, 0, 0, 0}, {0, 4, 8, 10, 14, 16, 18, 22}, {0, 4, 6, 10, 14, 16, 20, 0}, {0, 4, 6, 10, 14, 16, 22, 0}, {0, 4, 6, 14, 20, 0, 0, 0}}
 };
 // Rows 5, 6 and 9 carry the same named tones as the diminished and augmented
 // chords they serve: the whole tone row by its names, and the octatonic (dim)
 // and offset diminished sixth (dim7) rows with the chord's own G-flat and
 // B-double-flat in place of F-sharp and A, so the harp in modes 8 and 9 plays
 // the chord it is under.
-const uint8_t edo_chord_scale_intervals[3][15][8] = {
+const uint8_t edo_chord_scale_intervals[4][15][8] = {
   {{0, 2, 4, 7, 9, 0, 0, 0}, {0, 2, 4, 6, 9, 0, 0, 0}, {0, 3, 5, 7, 10, 0, 0, 0}, {0, 2, 4, 7, 10, 0, 0, 0}, {0, 3, 5, 7, 9, 0, 0, 0}, {0, 1, 3, 4, 6, 7, 9, 10}, {0, 2, 4, 6, 8, 10, 0, 0}, {0, 2, 4, 5, 7, 8, 9, 11}, {0, 2, 3, 5, 7, 8, 9, 11}, {0, 2, 3, 4, 6, 7, 9, 11}, {0, 2, 4, 5, 7, 9, 11, 0}, {0, 2, 3, 5, 7, 9, 10, 0}, {0, 2, 4, 6, 7, 9, 11, 0}, {0, 2, 4, 5, 7, 9, 10, 0}, {0, 2, 3, 5, 7, 8, 10, 0}},
   {{0, 3, 6, 11, 14, 0, 0, 0}, {0, 3, 6, 9, 14, 0, 0, 0}, {0, 5, 8, 11, 16, 0, 0, 0}, {0, 3, 6, 11, 16, 0, 0, 0}, {0, 5, 8, 11, 14, 0, 0, 0}, {0, 2, 5, 6, 10, 11, 14, 16}, {0, 3, 6, 9, 12, 15, 0, 0}, {0, 3, 6, 8, 11, 13, 14, 17}, {0, 3, 5, 8, 11, 13, 14, 17}, {0, 3, 5, 6, 10, 11, 15, 17}, {0, 3, 6, 8, 11, 14, 17, 0}, {0, 3, 5, 8, 11, 14, 16, 0}, {0, 3, 6, 9, 11, 14, 17, 0}, {0, 3, 6, 8, 11, 14, 16, 0}, {0, 3, 5, 8, 11, 13, 16, 0}},
-  {{0, 5, 10, 18, 23, 0, 0, 0}, {0, 5, 10, 15, 23, 0, 0, 0}, {0, 8, 13, 18, 26, 0, 0, 0}, {0, 5, 10, 18, 26, 0, 0, 0}, {0, 8, 13, 18, 23, 0, 0, 0}, {0, 3, 8, 10, 16, 18, 23, 26}, {0, 5, 10, 15, 20, 25, 0, 0}, {0, 5, 10, 13, 18, 21, 23, 28}, {0, 5, 8, 13, 18, 21, 23, 28}, {0, 5, 8, 10, 16, 18, 24, 28}, {0, 5, 10, 13, 18, 23, 28, 0}, {0, 5, 8, 13, 18, 23, 26, 0}, {0, 5, 10, 15, 18, 23, 28, 0}, {0, 5, 10, 13, 18, 23, 26, 0}, {0, 5, 8, 13, 18, 21, 26, 0}}
+  {{0, 5, 10, 18, 23, 0, 0, 0}, {0, 5, 10, 15, 23, 0, 0, 0}, {0, 8, 13, 18, 26, 0, 0, 0}, {0, 5, 10, 18, 26, 0, 0, 0}, {0, 8, 13, 18, 23, 0, 0, 0}, {0, 3, 8, 10, 16, 18, 23, 26}, {0, 5, 10, 15, 20, 25, 0, 0}, {0, 5, 10, 13, 18, 21, 23, 28}, {0, 5, 8, 13, 18, 21, 23, 28}, {0, 5, 8, 10, 16, 18, 24, 28}, {0, 5, 10, 13, 18, 23, 28, 0}, {0, 5, 8, 13, 18, 23, 26, 0}, {0, 5, 10, 15, 18, 23, 28, 0}, {0, 5, 10, 13, 18, 23, 26, 0}, {0, 5, 8, 13, 18, 21, 26, 0}},
+  {{0, 4, 8, 14, 18, 0, 0, 0}, {0, 4, 8, 12, 18, 0, 0, 0}, {0, 6, 10, 14, 20, 0, 0, 0}, {0, 4, 8, 14, 20, 0, 0, 0}, {0, 6, 10, 14, 18, 0, 0, 0}, {0, 2, 6, 8, 12, 14, 18, 20}, {0, 4, 8, 12, 16, 20, 0, 0}, {0, 4, 8, 10, 14, 16, 18, 22}, {0, 4, 6, 10, 14, 16, 18, 22}, {0, 4, 6, 8, 12, 14, 18, 22}, {0, 4, 8, 10, 14, 18, 22, 0}, {0, 4, 6, 10, 14, 18, 20, 0}, {0, 4, 8, 12, 14, 18, 22, 0}, {0, 4, 8, 10, 14, 18, 20, 0}, {0, 4, 6, 10, 14, 16, 20, 0}}
 };
-const uint8_t edo_major[3][7] = {{0, 4, 7, 12, 2, 5, 9}, {0, 6, 11, 19, 3, 8, 14}, {0, 10, 18, 31, 5, 13, 23}};
-const uint8_t edo_minor[3][7] = {{0, 3, 7, 12, 1, 5, 8}, {0, 5, 11, 19, 2, 8, 13}, {0, 8, 18, 31, 3, 13, 21}};
-const uint8_t edo_maj_sixth[3][7] = {{0, 4, 7, 9, 2, 5, 12}, {0, 6, 11, 14, 3, 8, 19}, {0, 10, 18, 23, 5, 13, 31}};
-const uint8_t edo_min_sixth[3][7] = {{0, 3, 7, 9, 1, 5, 12}, {0, 5, 11, 14, 2, 8, 19}, {0, 8, 18, 23, 3, 13, 31}};
-const uint8_t edo_seventh[3][7] = {{0, 4, 10, 7, 2, 5, 9}, {0, 6, 16, 11, 3, 8, 14}, {0, 10, 26, 18, 5, 13, 23}};
-const uint8_t edo_maj_seventh[3][7] = {{0, 4, 11, 7, 2, 5, 9}, {0, 6, 17, 11, 3, 8, 14}, {0, 10, 28, 18, 5, 13, 23}};
-const uint8_t edo_min_seventh[3][7] = {{0, 3, 10, 7, 1, 5, 8}, {0, 5, 16, 11, 2, 8, 13}, {0, 8, 26, 18, 3, 13, 21}};
+const uint8_t edo_major[4][7] = {{0, 4, 7, 12, 2, 5, 9}, {0, 6, 11, 19, 3, 8, 14}, {0, 10, 18, 31, 5, 13, 23}, {0, 8, 14, 24, 4, 10, 18}};
+const uint8_t edo_minor[4][7] = {{0, 3, 7, 12, 1, 5, 8}, {0, 5, 11, 19, 2, 8, 13}, {0, 8, 18, 31, 3, 13, 21}, {0, 6, 14, 24, 2, 10, 16}};
+const uint8_t edo_maj_sixth[4][7] = {{0, 4, 7, 9, 2, 5, 12}, {0, 6, 11, 14, 3, 8, 19}, {0, 10, 18, 23, 5, 13, 31}, {0, 8, 14, 18, 4, 10, 24}};
+const uint8_t edo_min_sixth[4][7] = {{0, 3, 7, 9, 1, 5, 12}, {0, 5, 11, 14, 2, 8, 19}, {0, 8, 18, 23, 3, 13, 31}, {0, 6, 14, 18, 2, 10, 24}};
+const uint8_t edo_seventh[4][7] = {{0, 4, 10, 7, 2, 5, 9}, {0, 6, 16, 11, 3, 8, 14}, {0, 10, 26, 18, 5, 13, 23}, {0, 8, 20, 14, 4, 10, 18}};
+const uint8_t edo_maj_seventh[4][7] = {{0, 4, 11, 7, 2, 5, 9}, {0, 6, 17, 11, 3, 8, 14}, {0, 10, 28, 18, 5, 13, 23}, {0, 8, 22, 14, 4, 10, 18}};
+const uint8_t edo_min_seventh[4][7] = {{0, 3, 10, 7, 1, 5, 8}, {0, 5, 16, 11, 2, 8, 13}, {0, 8, 26, 18, 3, 13, 21}, {0, 6, 20, 14, 2, 10, 16}};
 // The diminished and augmented tones are the NAMED intervals, like every other
 // table here: a diminished fifth is G-flat (16 of 31, 10 of 19), not F-sharp
 // (15, 9); a diminished seventh B-double-flat (24, 15), not A (23, 14); an
 // augmented fifth G-sharp (20, 12), not A-flat (21, 13). These had been
 // generated by rounding cents, which lands on the neighbouring enharmonic --
 // the pitches twelve cannot tell apart and 19 and 31 can.
-const uint8_t edo_aug[3][7] = {{0, 4, 8, 12, 2, 5, 9}, {0, 6, 12, 19, 3, 8, 14}, {0, 10, 20, 31, 5, 13, 23}};
-const uint8_t edo_dim[3][7] = {{0, 3, 6, 12, 2, 5, 9}, {0, 5, 10, 19, 3, 8, 14}, {0, 8, 16, 31, 5, 13, 23}};
-const uint8_t edo_full_dim[3][7] = {{0, 3, 6, 9, 2, 5, 12}, {0, 5, 10, 15, 3, 8, 19}, {0, 8, 16, 24, 5, 13, 31}};
+const uint8_t edo_aug[4][7] = {{0, 4, 8, 12, 2, 5, 9}, {0, 6, 12, 19, 3, 8, 14}, {0, 10, 20, 31, 5, 13, 23}, {0, 8, 16, 24, 4, 10, 18}};
+const uint8_t edo_dim[4][7] = {{0, 3, 6, 12, 2, 5, 9}, {0, 5, 10, 19, 3, 8, 14}, {0, 8, 16, 31, 5, 13, 23}, {0, 6, 12, 24, 4, 10, 18}};
+const uint8_t edo_full_dim[4][7] = {{0, 3, 6, 9, 2, 5, 12}, {0, 5, 10, 15, 3, 8, 19}, {0, 8, 16, 24, 5, 13, 31}, {0, 6, 12, 18, 4, 10, 24}};
 // The alternate layout's chords (firmware #130), from the same interval names.
 // Without these they kept their twelve-note numbers in 19 and 31, read there as
 // steps: a 31-EDO sus4 of 0 5 7 is a second and a quarter-octave, not F and G.
-const uint8_t edo_half_dim[3][7] = {{0, 3, 6, 10, 2, 5, 8}, {0, 5, 10, 16, 3, 8, 13}, {0, 8, 16, 26, 5, 13, 21}};
-const uint8_t edo_sus_fourth[3][7] = {{0, 5, 7, 12, 2, 9, 10}, {0, 8, 11, 19, 3, 14, 16}, {0, 13, 18, 31, 5, 23, 26}};
-const uint8_t edo_sus_second[3][7] = {{0, 2, 7, 12, 5, 9, 4}, {0, 3, 11, 19, 8, 14, 6}, {0, 5, 18, 31, 13, 23, 10}};
-const uint8_t edo_seventh_sus[3][7] = {{0, 5, 10, 7, 2, 9, 4}, {0, 8, 16, 11, 3, 14, 6}, {0, 13, 26, 18, 5, 23, 10}};
-const uint8_t edo_major_ninth[3][7] = {{0, 4, 11, 2, 7, 5, 9}, {0, 6, 17, 3, 11, 8, 14}, {0, 10, 28, 5, 18, 13, 23}};
-const uint8_t edo_minor_ninth[3][7] = {{0, 3, 10, 2, 7, 5, 8}, {0, 5, 16, 3, 11, 8, 13}, {0, 8, 26, 5, 18, 13, 21}};
-const uint8_t edo_added_ninth[3][7] = {{0, 4, 7, 2, 5, 9, 11}, {0, 6, 11, 3, 8, 14, 17}, {0, 10, 18, 5, 13, 23, 28}};
-const uint8_t edo_six_nine[3][7] = {{0, 4, 9, 2, 7, 5, 11}, {0, 6, 14, 3, 11, 8, 17}, {0, 10, 23, 5, 18, 13, 28}};
+const uint8_t edo_half_dim[4][7] = {{0, 3, 6, 10, 2, 5, 8}, {0, 5, 10, 16, 3, 8, 13}, {0, 8, 16, 26, 5, 13, 21}, {0, 6, 12, 20, 4, 10, 16}};
+const uint8_t edo_sus_fourth[4][7] = {{0, 5, 7, 12, 2, 9, 10}, {0, 8, 11, 19, 3, 14, 16}, {0, 13, 18, 31, 5, 23, 26}, {0, 10, 14, 24, 4, 18, 20}};
+const uint8_t edo_sus_second[4][7] = {{0, 2, 7, 12, 5, 9, 4}, {0, 3, 11, 19, 8, 14, 6}, {0, 5, 18, 31, 13, 23, 10}, {0, 4, 14, 24, 10, 18, 8}};
+const uint8_t edo_seventh_sus[4][7] = {{0, 5, 10, 7, 2, 9, 4}, {0, 8, 16, 11, 3, 14, 6}, {0, 13, 26, 18, 5, 23, 10}, {0, 10, 20, 14, 4, 18, 8}};
+const uint8_t edo_major_ninth[4][7] = {{0, 4, 11, 2, 7, 5, 9}, {0, 6, 17, 3, 11, 8, 14}, {0, 10, 28, 5, 18, 13, 23}, {0, 8, 22, 4, 14, 10, 18}};
+const uint8_t edo_minor_ninth[4][7] = {{0, 3, 10, 2, 7, 5, 8}, {0, 5, 16, 3, 11, 8, 13}, {0, 8, 26, 5, 18, 13, 21}, {0, 6, 20, 4, 14, 10, 16}};
+const uint8_t edo_added_ninth[4][7] = {{0, 4, 7, 2, 5, 9, 11}, {0, 6, 11, 3, 8, 14, 17}, {0, 10, 18, 5, 13, 23, 28}, {0, 8, 14, 4, 10, 18, 22}};
+const uint8_t edo_six_nine[4][7] = {{0, 4, 9, 2, 7, 5, 11}, {0, 6, 14, 3, 11, 8, 17}, {0, 10, 23, 5, 18, 13, 28}, {0, 8, 18, 4, 14, 10, 22}};
 
 uint8_t major[7] = {0, 4, 7, 12, 2, 5, 9};  // After the four notes of the chord (fundamental, third, fifth of seven, and octave of fifth, the next notes are the second fourth and sixth)
 uint8_t minor[7] = {0, 3, 7, 12, 1, 5, 8};
@@ -548,7 +563,7 @@ static inline double temper_ratio(double note) {
 
 // a minor third in the live division, for the relative-minor harp modes
 static inline int8_t minor_third_steps() {
-  return edo_index == 0 ? 3 : (edo_index == 1 ? 5 : 8);
+  return edo_index == 0 ? 3 : edo_index == 1 ? 5 : edo_index == 2 ? 8 : 6;
 }
 
 // MIDI note numbers are integers, so a 31st of an octave has nowhere to go.
@@ -929,6 +944,7 @@ void apply_temperament(uint8_t t) {
   edo_index = temperament_profiles[t].edo_index;
   EDO = edo_steps[edo_index];
   sharp_step = edo_sharp[edo_index];
+  modifier_step = edo_modifier[edo_index];
   transpose_steps = (transpose_semitones * EDO + 6) / 12; // one semitone of transposition is EDO/12 steps here
   chord_note_floor = EDO;      // the spacing rails are octaves, so they move with the division
   chord_note_ceiling = 8 * EDO;
@@ -1133,7 +1149,7 @@ uint8_t apply_chord_spacing(uint8_t note, uint8_t voice, uint8_t level, bool sla
   // underneath it. Another octave of the slash root is fine, and thickens it;
   // any other tone below would turn a C/G into something closer to a C/E.
   if (slashed && shift < 0) {
-    int8_t slash_offset = sharp ? (flat_button_modifier ? -sharp_step : sharp_step) : 0;
+    int8_t slash_offset = sharp ? (flat_button_modifier ? -modifier_step : modifier_step) : 0;
     int16_t slash_note = EDO * (level / 10)
       + get_root_button(key_signature_selection, chord_frame_shift, slash_value)
       + slash_offset;
@@ -1158,16 +1174,16 @@ uint8_t calculate_note_chord(uint8_t voice, bool slashed, bool sharp) {
   uint8_t level = chord_shuffling_array[chord_shuffling_selection][voice];
   if (slashed && level % 10 == note_slash_level) {
     if (!flat_button_modifier) {
-      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * sharp_step);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * modifier_step);
     } else {
-      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * sharp_step);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * modifier_step);
     }
   } else {
     if (!flat_button_modifier) {
-      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * sharp_step + chord_tone_offset(level, voice));
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * modifier_step + chord_tone_offset(level, voice));
       note = apply_chord_spacing(note, voice, level, slashed, sharp);
       } else {
-      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * sharp_step + chord_tone_offset(level, voice));
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * modifier_step + chord_tone_offset(level, voice));
       note = apply_chord_spacing(note, voice, level, slashed, sharp);    
     }
   }
@@ -1258,7 +1274,7 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
     uint8_t root_note = slashed
       ? get_root_button(key_signature_selection, chord_frame_shift, slash_value)
       : get_root_button(key_signature_selection, chord_frame_shift, fundamental);
-    int8_t sharp_offset = sharp ? (flat_button_modifier ? -sharp_step : sharp_step) : 0;
+    int8_t sharp_offset = sharp ? (flat_button_modifier ? -modifier_step : modifier_step) : 0;
     return calculate_chord_specific_note(string, root_note, sharp_offset, current_chord,
                                          scalar_harp_selection == 9);
   }
@@ -1268,15 +1284,15 @@ uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
   uint8_t level = harp_shuffling_array[harp_shuffling_selection][string];
   if (slashed && level % 10 == note_slash_level) {
     if (!flat_button_modifier) {
-      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * sharp_step);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) + sharp * modifier_step);
     } else {
-      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * sharp_step);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, slash_value) - sharp * modifier_step);
     }
   } else {
     if (!flat_button_modifier) {
-      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * sharp_step + (*current_chord)[level % 10]);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) + sharp * modifier_step + (*current_chord)[level % 10]);
     } else {
-      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * sharp_step + (*current_chord)[level % 10]);
+      note = (EDO * int(level / 10) + get_root_button(key_signature_selection, chord_frame_shift, fundamental) - sharp * modifier_step + (*current_chord)[level % 10]);
 
     }
   }

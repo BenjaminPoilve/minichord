@@ -41,7 +41,7 @@ PYTHAGOREAN_COMMA = 1200 * log2(531441 / 524288)
 SCHISMA = PYTHAGOREAN_COMMA - SYNTONIC_COMMA
 ANCHOR = 9  # A
 # divisions main.cpp has note tables for, and their index into edo_steps[]
-EDO_INDEX = {12: 0, 19: 1, 31: 2}
+EDO_INDEX = {12: 0, 19: 1, 31: 2, 24: 3}
 
 
 def fifths(deviations):
@@ -111,6 +111,9 @@ PROFILES = [
     dict(name="19-EDO", label="19-EDO",
          note="Nineteen steps to the octave. The buttons mean exactly what they did, but C# and Db are now different notes a step apart, with C# the lower. Minor thirds land within a cent of pure; fifths pay 7 cents for it.",
          cents=edo(19)),
+    dict(name="24-EDO (quarter tones)", label="24-EDO",
+         note="Twenty-four steps: twelve, with a quarter-tone between each pair. The buttons and key signatures mean what they always did, and the modifier moves a note by a quarter-tone instead of a semitone, so it plays the notes between the frets. The neutral third, halfway between major and minor, is right there. Over MIDI the quarter-tones round to a semitone.",
+         cents=edo(24)),
     dict(name="31-EDO", label="31-EDO",
          note="Thirty-one steps. Major thirds essentially exact, and the augmented sixth lands within a cent of the 7:4 harmonic seventh — the interval twelve-note tuning has no room for. Sharps and flats are two steps apart here.",
          cents=edo(31)),
@@ -150,7 +153,7 @@ def header_text():
         "//\n"
         "// One row per temperament, in the order stored in presets (the temperament\n"
         "// parameter). edo_index selects the division of the octave: 0 is twelve notes,\n"
-        "// 1 and 2 the 19 and 31 step tables in main.cpp. cents are offsets from equal\n"
+        "// 1, 2 and 3 the 19, 31 and 24 step tables in main.cpp. cents are offsets from equal\n"
         "// temperament for pitch classes C, C#, D ... B, used only when edo_index is 0,\n"
         "// with A at 0 so A sounds at the master tuning pitch.\n"
         "#pragma once\n"

@@ -2,7 +2,7 @@
 //
 // One row per temperament, in the order stored in presets (the temperament
 // parameter). edo_index selects the division of the octave: 0 is twelve notes,
-// 1 and 2 the 19 and 31 step tables in main.cpp. cents are offsets from equal
+// 1, 2 and 3 the 19, 31 and 24 step tables in main.cpp. cents are offsets from equal
 // temperament for pitch classes C, C#, D ... B, used only when edo_index is 0,
 // with A at 0 so A sounds at the master tuning pitch.
 #pragma once
@@ -25,6 +25,7 @@ const TemperamentProfile temperament_profiles[] = {
   {0, {  8,  -2,   3,   2,  -3,   6,  -4,   5,   0,   0,   4,  -1}},   // 8 kellner
   {0, {  5,  -7,   2,  10,  -2,   7,  -5,   3,  -8,   0,   8,  -3}},   // 9 sixth-comma meantone
   {1, {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0}},   // 10 19-EDO
-  {2, {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0}},   // 11 31-EDO
+  {3, {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0}},   // 11 24-EDO (quarter tones)
+  {2, {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0}},   // 12 31-EDO
 };
 const uint8_t temperament_count = sizeof(temperament_profiles) / sizeof(temperament_profiles[0]);
