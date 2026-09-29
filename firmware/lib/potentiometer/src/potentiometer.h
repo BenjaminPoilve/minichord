@@ -3,6 +3,7 @@
 
 #include "Arduino.h" 
 #include <functional>
+#include "parameter_lookup.h"
 
 
 class potentiometer{
@@ -38,6 +39,14 @@ class potentiometer{
   int pot_pin;
   int16_t dead_zone=20;
   int16_t threshold=20;
+    // Discrete (integer) targets are mapped across the bounds declared in
+    // parameters.json rather than scaled around the stored value.
+    bool declared_bounds(int adress, int16_t &min_out, int16_t &max_out);
+    int16_t quantise(int16_t proposed, int16_t lo, int16_t hi, int adress);
+    int16_t last_discrete_output = 0;  // last value emitted for a discrete target
+    int16_t last_discrete_reading = 0; // smoothed reading when it was latched
+    int last_discrete_adress = -1;     // target the latch refers to
+
   //To access initial value
   int16_t *current_sysex_parameters_pointer;
 };
