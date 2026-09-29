@@ -12,7 +12,7 @@
 #include <potentiometer.h>
 
 //>>SOFWTARE VERSION 
-int version_ID=9; //to be read 00.03, stored at adress 7 in memory
+int version_ID=10; //to be read 00.03, stored at adress 7 in memory
 //>>BUTTON ARRAYS<<
 debouncer harp_array[12];
 debouncer chord_matrix_array[22];
@@ -142,18 +142,22 @@ bool trigger_chord = false;    // flag to trigger the enveloppe of the chord
 bool sharp_active = false;     // flag for when the sharp is active
 bool flat_button_modifier= false; //flag to set the modifier to flat instead of sharp
 
-// Double-tapping the modifier toggles one parameter between its stored value
-// and a chosen one, and back. Which parameter and which value are up to the
-// player, so the gesture is not tied to any one feature.
+// Double-tapping the modifier toggles up to three parameters between their
+// stored values and chosen ones, and back: a preset's other side, say the
+// alternate chord layout, a different harp mode and the knobs' alternates, all
+// at once. Which parameters and which values are up to the player, so the
+// gesture is not tied to any one feature. Each pair is a control (which
+// parameter) and a value; a control of 0 leaves that pair unused.
 const uint16_t modifier_tap_max = 250;  // ms: a press longer than this is a hold, not a tap
 const uint16_t modifier_tap_gap = 400;  // ms: the second tap must land within this of the first
 bool double_tap_engaged = false;
 uint8_t double_tap_led_step = 0;
 elapsedMillis led_anim_timer;
-int16_t double_tap_saved = 0;
-int16_t double_tap_engaged_adress = -1; // the parameter the engaged toggle is holding, latched at engage time
-const uint8_t double_tap_control_adress = 200;
-const uint8_t double_tap_value_adress = 201;
+const uint8_t double_tap_pairs = 3;
+const uint8_t double_tap_control_adress[double_tap_pairs] = {200, 209, 211};
+const uint8_t double_tap_value_adress[double_tap_pairs] = {201, 210, 212};
+int16_t double_tap_saved[double_tap_pairs] = {0, 0, 0};
+int16_t double_tap_engaged_adress[double_tap_pairs] = {-1, -1, -1}; // what each pair is holding, latched at engage time; -1 if nothing
 bool continuous_chord = false; // wether the chord is held continuously. Controlled by the "hold" button
 bool rythm_mode = false;
 bool barry_harris_mode = false;
@@ -1075,18 +1079,22 @@ void save_config(int bank_number, bool default_save) {
     // its value were written here the preset would come back already holding it,
     // and the gesture would then toggle between two identical values and appear
     // to do nothing. So the underlying value is what gets saved.
-    int16_t held_adress = double_tap_engaged_adress;
-    int16_t held_value = 0;
-    bool restore_held = double_tap_engaged && held_adress >= 21 && held_adress <= 219;
-    if (restore_held) {
-      held_value = current_sysex_parameters[held_adress];
-      current_sysex_parameters[held_adress] = double_tap_saved;
+    int16_t held_value[double_tap_pairs] = {0, 0, 0};
+    for (uint8_t k = 0; k < double_tap_pairs; k++) {
+      int16_t a = double_tap_engaged_adress[k];
+      if (double_tap_engaged && a >= 21 && a <= 219) {
+        held_value[k] = current_sysex_parameters[a];
+        current_sysex_parameters[a] = double_tap_saved[k];
+      }
     }
     for (u_int16_t i = 0; i < parameter_size; i++) {
           Serial.println(current_sysex_parameters[i]);
     }
     dataFile.println(serialize(current_sysex_parameters, parameter_size));
-    if (restore_held) current_sysex_parameters[held_adress] = held_value;
+    for (uint8_t k = 0; k < double_tap_pairs; k++) {
+      int16_t a = double_tap_engaged_adress[k];
+      if (double_tap_engaged && a >= 21 && a <= 219) current_sysex_parameters[a] = held_value[k];
+    }
   }
   Serial.print("Saved preset: ");
   Serial.println(dataFile.name());
@@ -1513,25 +1521,46 @@ void trigger_chord_notes() {
   button_pushed = false;
 }
 
-// Applies the chosen value, or puts back what was there before.
+// true if an address is one of the double tap's own settings, which it must never toggle
+static bool is_double_tap_setting(int16_t adress) {
+  for (uint8_t k = 0; k < double_tap_pairs; k++)
+    if (adress == double_tap_control_adress[k] || adress == double_tap_value_adress[k]) return true;
+  return false;
+}
+
+// Applies the chosen values, or puts back what was there before.
 void toggle_double_tap_target() {
   if (double_tap_engaged) {
-    // Restore to the address latched at engage time: the assignment at address
-    // 200 can be rewritten while the toggle is held, and the restore belongs to
-    // the parameter that was actually toggled, not to the new target.
-    current_sysex_parameters[double_tap_engaged_adress] = double_tap_saved;
-    apply_audio_parameter(double_tap_engaged_adress, double_tap_saved);
+    // Restore to the addresses latched at engage time, last applied first: the
+    // assignments can be rewritten while the toggle is held, and each restore
+    // belongs to the parameter that was actually toggled, not to a new target.
+    for (int8_t k = double_tap_pairs - 1; k >= 0; k--) {
+      int16_t a = double_tap_engaged_adress[k];
+      if (a < 0) continue;
+      current_sysex_parameters[a] = double_tap_saved[k];
+      apply_audio_parameter(a, double_tap_saved[k]);
+      double_tap_engaged_adress[k] = -1;
+    }
     double_tap_engaged = false;
     set_led_color(bank_led_hue, 1.0, 1 - led_attenuation);
   } else {
-    int16_t adress = current_sysex_parameters[double_tap_control_adress];
-    if (adress < 21 || adress > 219) return;   // 0 means the gesture is unassigned
-    if (adress == double_tap_control_adress || adress == double_tap_value_adress) return;
-    double_tap_saved = current_sysex_parameters[adress];
-    double_tap_engaged_adress = adress;
-    int16_t value = current_sysex_parameters[double_tap_value_adress];
-    current_sysex_parameters[adress] = value;
-    apply_audio_parameter(adress, value);
+    bool any = false;
+    for (uint8_t k = 0; k < double_tap_pairs; k++) {
+      int16_t adress = current_sysex_parameters[double_tap_control_adress[k]];
+      double_tap_engaged_adress[k] = -1;
+      if (adress < 21 || adress > 219) continue;   // 0 means this pair is unassigned
+      if (is_double_tap_setting(adress)) continue;
+      bool repeat = false;                          // two pairs on one parameter: the first one wins
+      for (uint8_t j = 0; j < k; j++) if (double_tap_engaged_adress[j] == adress) repeat = true;
+      if (repeat) continue;
+      double_tap_saved[k] = current_sysex_parameters[adress];
+      double_tap_engaged_adress[k] = adress;
+      int16_t value = current_sysex_parameters[double_tap_value_adress[k]];
+      current_sysex_parameters[adress] = value;
+      apply_audio_parameter(adress, value);
+      any = true;
+    }
+    if (!any) return;                               // nothing assigned: the gesture does nothing
     double_tap_engaged = true;
   }
   // The gesture changes a parameter with nothing on the wire to show it, so a

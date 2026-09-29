@@ -108,6 +108,18 @@ void apply_audio_parameter(int adress, int value) {
       case 201:
         
         break;
+      case 209:
+        
+        break;
+      case 210:
+        
+        break;
+      case 211:
+        
+        break;
+      case 212:
+        
+        break;
       case 2:
         string_gain.amplitude(value/100.0,100);  harp_attack_velocity=value/100.0*127;
         break;
