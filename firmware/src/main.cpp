@@ -240,6 +240,9 @@ int8_t mod_pot_alternate_range = 17;
 // chords are sounding. It is a preset parameter like any other, set from an editor or saved in a
 // preset, so a gesture that sets parameters can switch layers while playing. While it is 1 the LED
 // shows the preset's colour pale, so the layer is never a hidden state.
+// Switching layers asks each knob for pickup: the function it moves to keeps its value until the
+// knob reaches the position that function was last set from, so nothing jumps to where the knob
+// happens to be. Holding the modifier doesn't ask, and behaves as it always has.
 bool knob_layer = false;
 static inline float bank_led_saturation() { return knob_layer ? 0.45 : 1.0; }
 // 21-39 are global parameters (switching logic, global reverb etc.)

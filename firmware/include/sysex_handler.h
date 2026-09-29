@@ -115,7 +115,7 @@ void apply_audio_parameter(int adress, int value) {
         mod_pot.set_alternate_range(value);
         break;
       case 117:
-        knob_layer=value; set_led_color(bank_led_hue, bank_led_saturation(), 1-led_attenuation);
+        if (knob_layer != (bool)value) { chord_pot.pickup_on_next_switch(); harp_pot.pickup_on_next_switch(); mod_pot.pickup_on_next_switch(); } knob_layer=value; set_led_color(bank_led_hue, bank_led_saturation(), 1-led_attenuation);
         break;
       case 4:
         chord_pot.set_alternate_default(value);chord_pot.force_update();
