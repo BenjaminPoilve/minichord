@@ -15,7 +15,7 @@
 //>>SOFWTARE VERSION 
 const uint16_t firmware_version_adress = 7;   // where the writing firmware's version is stamped
 void apply_preset_version(int bank_number);
-int version_ID=10; //to be read 00.03, stored at adress 7 in memory
+int version_ID=11; //to be read 00.03, stored at adress 7 in memory
 //>>BUTTON ARRAYS<<
 debouncer harp_array[12];
 debouncer chord_matrix_array[22];
@@ -275,6 +275,12 @@ uint8_t note_slash_level = 0;     // the level we are replacing in the chord whe
 bool retrigger_chord = true;      // wether or not to retrigger the enveloppe when the chord is switched within current line (including when selecting slash chord)
 bool change_held_strings = false; // to control wether hold strings change with chord:
 bool chromatic_harp_mode = false; // to switch the harp to chromatic mode
+// Harp rank: which set of twelve steps the chromatic harp plays, 1 for steps
+// 0-11 of the division, 2 for 12-23, 3 for 24-35, like the rows of strings on a
+// triple harp. A division has as many ranks as it takes twelve strings to cover
+// it: one in 12, two in 19 and 24, three in 31. A higher rank than the division has
+// plays its last, so in 12 the setting changes nothing.
+uint8_t harp_rank = 1;
 //>>SYSEX PARAMETERS<<
 // SYSEX midi message are used to control up to 256 synthesis parameters.
 const uint16_t parameter_size = 256;
@@ -1260,8 +1266,12 @@ uint8_t calculate_chord_specific_note(uint8_t string, uint8_t root_note, int8_t 
 uint8_t calculate_note_harp(uint8_t string, bool slashed, bool sharp) {
   if (chromatic_harp_mode) {
     // Chromatic mode: one step a string from C two octaves up, in whatever
-    // division is live (24 steps in 12, 38 in 19, 62 in 31).
-    return 2 * EDO + string;
+    // division is live (24 steps in 12, 38 in 19, 48 in 24, 62 in 31), from the start of
+    // the chosen rank. Steps past the end of the division carry on into the
+    // next octave.
+    uint8_t ranks = (EDO + 11) / 12;
+    uint8_t rank = harp_rank < 1 ? 1 : (harp_rank > ranks ? ranks : harp_rank);
+    return 2 * EDO + 12 * (rank - 1) + string;
   }
 
   // Modes 1-7 ignore the chord entirely and run a fixed scale from the key
