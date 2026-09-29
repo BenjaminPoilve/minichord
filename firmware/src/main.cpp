@@ -157,6 +157,7 @@ const uint8_t double_tap_pairs = 3;
 const uint8_t double_tap_control_adress[double_tap_pairs] = {200, 209, 211};
 const uint8_t double_tap_value_adress[double_tap_pairs] = {201, 210, 212};
 int16_t double_tap_saved[double_tap_pairs] = {0, 0, 0};
+int16_t double_tap_applied[double_tap_pairs] = {0, 0, 0};   // what each pair set, to tell whether anything has changed it since
 int16_t double_tap_engaged_adress[double_tap_pairs] = {-1, -1, -1}; // what each pair is holding, latched at engage time; -1 if nothing
 bool continuous_chord = false; // wether the chord is held continuously. Controlled by the "hold" button
 bool rythm_mode = false;
@@ -1082,10 +1083,10 @@ void save_config(int bank_number, bool default_save) {
     int16_t held_value[double_tap_pairs] = {0, 0, 0};
     for (uint8_t k = 0; k < double_tap_pairs; k++) {
       int16_t a = double_tap_engaged_adress[k];
-      if (double_tap_engaged && a >= 21 && a <= 219) {
+      if (double_tap_engaged && a >= 21 && a <= 219 && current_sysex_parameters[a] == double_tap_applied[k]) {
         held_value[k] = current_sysex_parameters[a];
         current_sysex_parameters[a] = double_tap_saved[k];
-      }
+      } else held_value[k] = -32768;              // untouched by the double tap, or changed since: saved as it is
     }
     for (u_int16_t i = 0; i < parameter_size; i++) {
           Serial.println(current_sysex_parameters[i]);
@@ -1093,7 +1094,7 @@ void save_config(int bank_number, bool default_save) {
     dataFile.println(serialize(current_sysex_parameters, parameter_size));
     for (uint8_t k = 0; k < double_tap_pairs; k++) {
       int16_t a = double_tap_engaged_adress[k];
-      if (double_tap_engaged && a >= 21 && a <= 219) current_sysex_parameters[a] = held_value[k];
+      if (double_tap_engaged && a >= 21 && a <= 219 && held_value[k] != -32768) current_sysex_parameters[a] = held_value[k];
     }
   }
   Serial.print("Saved preset: ");
@@ -1534,9 +1535,12 @@ void toggle_double_tap_target() {
     // Restore to the addresses latched at engage time, last applied first: the
     // assignments can be rewritten while the toggle is held, and each restore
     // belongs to the parameter that was actually toggled, not to a new target.
+    // A setting changed since the tap (by the key change combo, or an editor)
+    // keeps that change: releasing undoes the double tap, not the player.
     for (int8_t k = double_tap_pairs - 1; k >= 0; k--) {
       int16_t a = double_tap_engaged_adress[k];
       if (a < 0) continue;
+      if (current_sysex_parameters[a] != double_tap_applied[k]) { double_tap_engaged_adress[k] = -1; continue; }   // changed since the tap (the key change combo, an editor): that change stands
       current_sysex_parameters[a] = double_tap_saved[k];
       apply_audio_parameter(a, double_tap_saved[k]);
       double_tap_engaged_adress[k] = -1;
@@ -1556,6 +1560,9 @@ void toggle_double_tap_target() {
       double_tap_saved[k] = current_sysex_parameters[adress];
       double_tap_engaged_adress[k] = adress;
       int16_t value = current_sysex_parameters[double_tap_value_adress[k]];
+      int16_t lo, hi;                              // the double tap's value is a raw number: keep it within the target's own range
+      if (parameter_range(adress, lo, hi)) value = constrain(value, lo, hi);
+      double_tap_applied[k] = value;
       current_sysex_parameters[adress] = value;
       apply_audio_parameter(adress, value);
       any = true;
