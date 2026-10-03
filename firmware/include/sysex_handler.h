@@ -126,6 +126,12 @@ void apply_audio_parameter(int adress, int value) {
       case 7:
         current_sysex_parameters[7]=version_ID;
         break;
+      case 109:
+        { int tenths = (value == 0) ? 4400 : constrain(value, 4320, 4460); float tuned_c_frequency = 130.81 * (tenths / 4400.0); if (tuned_c_frequency != c_frequency) { c_frequency = tuned_c_frequency; retune_active_voices(); } }
+        break;
+      case 237:
+        apply_temperament(value);
+        break;
       case 2:
         string_gain.amplitude(value/100.0,100);  harp_attack_velocity=value/100.0*127;
         break;
@@ -141,6 +147,9 @@ void apply_audio_parameter(int adress, int value) {
         break;
       case 98:
         chromatic_harp_mode=value;
+        break;
+      case 116:
+        harp_rank=value; for (int i=0;i<12;i++){ current_harp_notes[i]=calculate_note_harp(i,slash_chord,sharp_active); }
         break;
       case 41:
         for (int i=0;i<12;i++){
