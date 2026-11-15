@@ -4,7 +4,7 @@ This repository contains the source file both for the minichord itself and its d
 
 [![Watch the video](https://github.com/BenjaminPoilve/minichord/blob/main/documentation/site/ressources/thumbnail.png)](https://www.youtube.com/watch?v=66Gu4NNnHgA)
 
-To discuss the state of the project, features or share music, please head to the [minichord forum](https://minichord.discourse.group/categories).
+To discuss the state of the project, features or share music, please head to the [minichord subreddit](https://www.reddit.com/r/minichord/)
 
 ## Documentation 
 
